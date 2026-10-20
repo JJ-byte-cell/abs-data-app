@@ -41,7 +41,7 @@ if "active_filter_year" not in st.session_state:
     st.session_state.active_filter_year = None
 
 # FIXED URL PATHWAY: Adding 'dimensionAtObservation=AllDimensions' as strictly dictated by ABS CSV specifications
-base_gateway = "https://data.api.abs.gov.au/rest/data"
+base_gateway = "https://abs.gov.au"
 query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}&dimensionAtObservation=AllDimensions"
 
 # If sidebar parameters change, invalidate the memory cache to force a clean fetch
@@ -190,7 +190,7 @@ if st.session_state.master_data_payload is not None:
         csv_io_stream = io.StringIO()
         filtered_matrix.to_csv(csv_io_stream, index=False)
         
-        st.download_button()
+        st.download_button(
             label="💾 Export Active Workspace Spreadsheet (CSV)",
             data=csv_io_stream.getvalue(),
             file_name=f"abs_clean_extract_{st.session_state.active_dataflow_id.lower().replace(',', '_')}.csv",
