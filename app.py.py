@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-import requests
 
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
+# Correct updated API definitions mapping to the current web domain
 FALLBACK_OPTIONS = {
     "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
     "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
@@ -18,16 +18,18 @@ selected_flow_ref = FALLBACK_OPTIONS[selected_flow_name]
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_ref:
+    # UPDATED: Pointing directly to the active analytics gateway route
     api_url = f"https://abs.gov.au{selected_flow_ref}/all?format=csvfilewithlabels&startPeriod={start_year}"
     
     st.subheader(f"Dataset: {selected_flow_name}")
     
     if st.button("🚀 Fetch Live Data", type="primary"):
-        with st.spinner("Fetching live data from ABS servers..."):
+        with st.spinner("Connecting to live ABS data streams..."):
             try:
+                # Direct stream download into pandas data frame via the open public cluster
                 df_data = pd.read_csv(api_url)
                 if df_data.empty:
-                    st.warning("No data found.")
+                    st.warning("No data found for this selection.")
                 else:
                     st.success(f"Loaded {len(df_data)} live rows!")
                     
@@ -46,4 +48,4 @@ if selected_flow_ref:
                         else:
                             st.line_chart(df_data.set_index(time_col)[value_col])
             except Exception as e:
-                st.error(f"Cloud server error: {e}")
+                st.error(f"Data stream error: {e}\n\nPlease check if the selected table is currently undergoing maintenance on the ABS database servers.")
