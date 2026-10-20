@@ -170,9 +170,8 @@ def build_cpi_key():
         matches = _choose_codes(codes, patterns, multiple=(field == "INDEX"))
         if not matches:
             raise ValueError(f"No matching {name} codes in CPI metadata (codelist: {cl}).")
-        # Prefer monthly for headline tracking; do not mix frequencies.
-        if field == "FREQ":
-            matches = matches[:1]
+        # Request BOTH monthly and quarterly series; choose one for display later.
+        # A monthly-only request cannot supply the long quarterly CPI history.
         parts.append("+".join(matches))
         decisions.append(f"{name}: {', '.join(matches)}")
     missing = essential - found
@@ -721,7 +720,8 @@ CPI_GROUPS = {
 }
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def prepare_cpi_visuals(source, time_column, labels):
+def prepare_cpi_visuals(source, time_column, labels, preferred_frequency="Auto"):
+
     """Select a comparable CPI index family, never aggregate mixed series."""
     data = source.dropna(subset=["_DATE", "_VALUE"]).copy()
     if data.empty:
@@ -748,18 +748,29 @@ def prepare_cpi_visuals(source, time_column, labels):
         if index_mask.any():
             data = data.loc[index_mask].copy()
             break
-    # Avoid mixing quarterly and monthly observations.
+    # Select frequency BEFORE identifying series, without mixing observations.
     periods = data[time_column].astype(str)
     monthly = periods.str.fullmatch(r"\d{4}-\d{2}")
     quarterly = periods.str.fullmatch(r"\d{4}-Q[1-4]")
-    if monthly.any():
+    if preferred_frequency == "Quarterly" and quarterly.any():
+        use_monthly = False
+    elif preferred_frequency == "Monthly" and monthly.any():
+        use_monthly = True
+    elif preferred_frequency == "Auto":
+        # Prefer quarterly if it covers meaningfully more history.
+        monthly_start = data.loc[monthly, "_DATE"].min() if monthly.any() else pd.NaT
+        quarterly_start = data.loc[quarterly, "_DATE"].min() if quarterly.any() else pd.NaT
+        use_monthly = bool(monthly.any() and (
+            not quarterly.any() or monthly_start <= quarterly_start + pd.DateOffset(months=6)
+        ))
+    else:
+        use_monthly = bool(monthly.any())
+    if use_monthly:
         data = data.loc[monthly].copy()
-        lag = 12
-        frequency = "Monthly"
+        lag, frequency = 12, "Monthly"
     elif quarterly.any():
         data = data.loc[quarterly].copy()
-        lag = 4
-        frequency = "Quarterly"
+        lag, frequency = 4, "Quarterly"
     else:
         return pd.DataFrame(), "No monthly or quarterly CPI series detected"
 
@@ -825,7 +836,14 @@ if active_view == VIEWS[1]:
     else:
         st.subheader("Inflation monitor")
         st.caption("ABS-inspired visuals · CPI expenditure groups · Annual percentage change is not weighted contribution to headline CPI")
-        cpi, cpi_error = prepare_cpi_visuals(df[["_DATE", "_VALUE", time_col] + label_cols], time_col, label_cols)
+        cpi_frequency_choice = st.radio(
+            "CPI chart frequency", ["Auto", "Quarterly", "Monthly"], horizontal=True,
+            help="Auto chooses the longer historical series. Quarterly CPI is usually better for long-term comparisons."
+        )
+        cpi, cpi_error = prepare_cpi_visuals(
+            df[["_DATE", "_VALUE", time_col] + label_cols],
+            time_col, label_cols, cpi_frequency_choice
+        )
         if cpi_error:
             st.warning(cpi_error)
             st.caption("The CPI view selects a consistent index-number family independently of the general filters. If no chart appears, inspect the CPI series and ABS dimension labels in Data Explorer.")
@@ -842,7 +860,7 @@ if active_view == VIEWS[1]:
                 else:
                     cutoff = last_period - pd.DateOffset(years=history_years)
                     history = available.loc[available["_DATE"] >= cutoff].copy()
-                st.caption(f"Showing {history['_DATE'].min():%b %Y} to {last_period:%b %Y}. Requested data starts in {effective_start_year}; earlier CPI series may not be available at the same frequency.")
+                st.caption(f"Showing {history['_DATE'].min():%b %Y} to {last_period:%b %Y} · {cpi.attrs.get('frequency', 'Unknown')} CPI · ABS data requested from {effective_start_year}.")
                 if history["_DATE"].min() > last_period - pd.DateOffset(years=history_years if isinstance(history_years, int) else 100):
                     st.info("The selected ABS CPI series has less history than requested. Monthly CPI coverage may be shorter than quarterly CPI coverage; consider a quarterly series for longer-term comparisons.")
                 latest = available.loc[available["_DATE"] == last_period].copy()
@@ -862,6 +880,7 @@ if active_view == VIEWS[1]:
                     fig.update_layout(title="Headline inflation — annual change", yaxis_title="Annual change (%)",
                                       xaxis_title="", template="plotly_white", height=390,
                                       margin=dict(l=20,r=20,t=60,b=20), hovermode="x unified")
+                    fig.update_xaxes(range=[headline["_DATE"].min(), headline["_DATE"].max() + pd.DateOffset(months=1)], autorange=False)
                     st.plotly_chart(fig, use_container_width=True, key="headline_cpi")
                 else:
                     st.info("Headline CPI series not present in this matched ABS slice.")
