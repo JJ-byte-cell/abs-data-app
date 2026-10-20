@@ -910,35 +910,67 @@ with data_tab:
         if not col.startswith("_")
     ]
 
+    # Large Streamlit tables are expensive to render on every rerun.
+    # Show a preview here, while keeping the full filtered dataset downloadable.
+    PREVIEW_ROWS = 5000
+    preview_df = filtered_df[display_cols].head(PREVIEW_ROWS)
+
+    st.caption(
+        f"Showing the first {len(preview_df):,} of {len(filtered_df):,} "
+        "matching rows. Download the CSV for the full dataset."
+    )
+
     st.dataframe(
-        filtered_df[display_cols],
+        preview_df,
         hide_index=True,
         use_container_width=True,
     )
 
-    raw_csv = filtered_df[display_cols].to_csv(
-        index=False
-    ).encode("utf-8")
-
-    st.download_button(
-        label="⬇️ Download filtered data as CSV",
-        data=raw_csv,
-        file_name="abs_filtered_data.csv",
-        mime="text/csv",
+    # Invalidate previously prepared downloads when dataset/date/filter choices change.
+    download_signature = (
+        dataset_name,
+        int(start_year),
+        int(end_year),
+        tuple(sorted(selected_dimensions.items())),
     )
+    if st.session_state.get("download_signature") != download_signature:
+        st.session_state.pop("filtered_csv_bytes", None)
+        st.session_state.pop("cleaned_csv_bytes", None)
+        st.session_state["download_signature"] = download_signature
 
-    cleaned = filtered_df.copy()
-    cleaned["PARSED_DATE"] = cleaned["_DATE"]
-    cleaned["NUMERIC_VALUE"] = cleaned["_VALUE"]
+    # Build downloads only when the user asks for them, rather than serialising
+    # 100k+ rows on every ordinary dashboard rerun.
+    with st.expander("Download data", expanded=False):
+        if st.button("Prepare filtered CSV", key="prepare_filtered_csv"):
+            st.session_state["filtered_csv_bytes"] = filtered_df[display_cols].to_csv(
+                index=False
+            ).encode("utf-8")
 
-    clean_csv = cleaned.to_csv(index=False).encode("utf-8")
+        if "filtered_csv_bytes" in st.session_state:
+            st.download_button(
+                label="⬇️ Download filtered data as CSV",
+                data=st.session_state["filtered_csv_bytes"],
+                file_name="abs_filtered_data.csv",
+                mime="text/csv",
+                key="download_filtered_csv",
+            )
 
-    st.download_button(
-        label="⬇️ Download cleaned data as CSV",
-        data=clean_csv,
-        file_name="abs_cleaned_data.csv",
-        mime="text/csv",
-    )
+        if st.button("Prepare cleaned CSV", key="prepare_cleaned_csv"):
+            cleaned = filtered_df.copy()
+            cleaned["PARSED_DATE"] = cleaned["_DATE"]
+            cleaned["NUMERIC_VALUE"] = cleaned["_VALUE"]
+            st.session_state["cleaned_csv_bytes"] = cleaned.to_csv(
+                index=False
+            ).encode("utf-8")
+
+        if "cleaned_csv_bytes" in st.session_state:
+            st.download_button(
+                label="⬇️ Download cleaned data as CSV",
+                data=st.session_state["cleaned_csv_bytes"],
+                file_name="abs_cleaned_data.csv",
+                mime="text/csv",
+                key="download_cleaned_csv",
+            )
 
 
 # =========================================================
