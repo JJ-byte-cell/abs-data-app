@@ -22,7 +22,7 @@ start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=20
 
 if selected_flow_ref:
     # Official endpoint route mapping to the correct API server domain
-    api_url = f"https://data.api.abs.gov.au/rest/data/{selected_flow_ref}/all?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
+    api_url = f"https://abs.gov.au{selected_flow_ref}/all?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
     
     st.subheader(f"Dataset: {selected_flow_name}")
     
@@ -46,8 +46,12 @@ if selected_flow_ref:
                     else:
                         st.success(f"Successfully loaded {len(df_data)} live rows!")
                         
-                        # Clean spaces out of column names
+                        # CRITICAL FIX: Aggressively strip whitespaces from column names to fix the Time Period error
                         df_data.columns = df_data.columns.str.strip()
+                        
+                        # If a column specifically named "Time Period" exists, rename it cleanly to get rid of plotting confusion
+                        if "Time Period" in df_data.columns:
+                            df_data = df_data.rename(columns={"Time Period": "TIME_PERIOD"})
                         
                         with st.expander("🔍 View Raw Extracted Data Table", expanded=False):
                             st.dataframe(df_data, use_container_width=True)
@@ -56,7 +60,7 @@ if selected_flow_ref:
                         st.subheader("📈 Visualise Data Trends")
                         
                         # Find the appropriate data structure columns based on standard ABS labels
-                        time_col = next((col for col in df_data.columns if 'TIME' in col.upper() or 'TIME_PERIOD' in col.upper()), None)
+                        time_col = next((col for col in df_data.columns if 'TIME' in col.upper() or 'PERIOD' in col.upper()), None)
                         value_col = next((col for col in df_data.columns if 'VALUE' in col.upper() or 'OBS_VALUE' in col.upper()), None)
                         group_col = next((col for col in df_data.columns if 'MEASURE' in col.upper() or 'INDEX' in col.upper() or 'DATA_ITEM' in col.upper()), None)
                         
