@@ -6,7 +6,7 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# FIX: Appending ',all' tells the ABS database server to explicitly grab the latest valid data definition version
+# Official dataflow registry keys accepted by the ABS API cluster
 FALLBACK_OPTIONS = {
     "CPI - Consumer Price Index": "ABS,CPI,all",
     "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,all",
@@ -15,14 +15,13 @@ FALLBACK_OPTIONS = {
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
+selected_flow_id = FALLBACK_OPTIONS[selected_flow_id] if 'selected_flow_id' in locals() else FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_id:
-    # Build the official SDMX compliant endpoint route structure
-    base_domain = "https://data.api.abs.gov.au"
+    base_domain = "https://abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
     api_url = f"{base_domain}{endpoint_path}{query_params}"
@@ -33,7 +32,6 @@ if selected_flow_id:
     if st.button("🚀 Fetch Live Data", type="primary"):
         with st.spinner("Connecting to live ABS API gateways..."):
             try:
-                # The ABS API strictly requires explicit SDMX headers to deliver plain data formatting
                 headers = {
                     "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
                     "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
@@ -56,13 +54,19 @@ if selected_flow_id:
                         for col in df_data.select_dtypes(include=['object']).columns:
                             df_data[col] = df_data[col].astype(str).str.strip()
                         
-                        # Map messy "Time Period" keys out of Vega-Altair plotting configurations
+                        # --- EXPLICIT AXIS CORRECTION ---
+                        # Map messy structural headers to clean normalized layout configurations
                         rename_dict = {}
                         for col in df_data.columns:
-                            if col.upper() in ["TIME PERIOD", "TIME_PERIOD", "PERIOD", "TIME"]:
+                            col_upper = col.upper()
+                            if "TIME" in col_upper or "PERIOD" in col_upper:
                                 rename_dict[col] = "TIME_PERIOD"
-                            if col.upper() in ["OBS VALUE", "OBS_VALUE", "VALUE"]:
+                            elif "OBS_VALUE" in col_upper or "OBS VALUE" in col_upper or "VALUE" in col_upper:
                                 rename_dict[col] = "OBS_VALUE"
+                            elif "MEASURE" in col_upper or "HEADING" in col_upper or "ITEM" in col_upper or "INDEX" in col_upper:
+                                # Prioritize categorical strings like "Data Item" or "Index" to split chart lines
+                                if "LABEL" in col_upper or "NAME" in col_upper or col_upper in ["DATA ITEM", "INDEX", "MEASURE"]:
+                                    rename_dict[col] = "DATA_GROUP"
                         
                         if rename_dict:
                             df_data = df_data.rename(columns=rename_dict)
@@ -73,13 +77,10 @@ if selected_flow_id:
                         # --- Data Visualisation ---
                         st.subheader("📈 Visualise Data Trends")
                         
+                        # Target our newly cleaned standardized columns
                         time_col = "TIME_PERIOD" if "TIME_PERIOD" in df_data.columns else None
                         value_col = "OBS_VALUE" if "OBS_VALUE" in df_data.columns else None
-                        
-                        # Dynamically find a categorical group column
-                        group_col = next((col for col in df_data.columns if col in ['MEASURE', 'Index', 'Data Item', 'Region']), None)
-                        if not group_col:
-                            group_col = next((col for col in df_data.columns if 'MEASURE' in col.upper() or 'INDEX' in col.upper()), None)
+                        group_col = "DATA_GROUP" if "DATA_GROUP" in df_data.columns else None
                         
                         if time_col and value_col:
                             df_data[value_col] = pd.to_numeric(df_data[value_col], errors='coerce')
@@ -88,9 +89,9 @@ if selected_flow_id:
                             if group_col and group_col in df_data.columns:
                                 unique_groups = df_data[group_col].unique().tolist()
                                 selected_groups = st.multiselect(
-                                    f"Filter chart lines by {group_col}:", 
+                                    "Filter chart lines:", 
                                     options=unique_groups, 
-                                    default=unique_groups[:3]
+                                    default=unique_groups[:3] # Show the first 3 categories automatically
                                 )
                                 
                                 chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
@@ -99,10 +100,9 @@ if selected_flow_id:
                             else:
                                 st.line_chart(df_data.set_index(time_col)[value_col], use_container_width=True)
                         else:
-                            st.warning("Could not map layout axes automatically. Explore raw grid details above.")
+                            st.warning("Could not automatically align chart axes. View the raw grid expanded above.")
                 else:
                     st.error(f"ABS API Connection Refused. Server status code: {response.status_code}")
-                    st.info("The path formatting structure is missing matching directory indices.")
                     
             except Exception as e:
                 st.error(f"Data stream error: {e}")
