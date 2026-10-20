@@ -135,7 +135,7 @@ def _choose_codes(codes, patterns, multiple=False):
     return matched if multiple else matched[:1]
 
 
-def build_cpi_key():
+def build_cpi_key(frequency="Auto"):
     dims, codelists = get_cpi_structure()
     parts = []
     decisions = []
@@ -158,7 +158,9 @@ def build_cpi_key():
             patterns = [r"^Australia$"]
             field = "REGION"
         elif upper == "FREQ" or "FREQUENCY" in upper:
-            patterns = [r"^Monthly$", r"^Quarterly$"]
+            patterns = ([r"^Quarterly$"] if frequency == "Quarterly" else
+                        [r"^Monthly$"] if frequency == "Monthly" else
+                        [r"^Monthly$", r"^Quarterly$"])
             field = "FREQ"
         elif "TSEST" in upper or "ADJUST" in upper:
             patterns = [r"^Original$"]
@@ -167,7 +169,7 @@ def build_cpi_key():
             parts.append("")
             continue
         found.add(field)
-        matches = _choose_codes(codes, patterns, multiple=(field == "INDEX"))
+        matches = _choose_codes(codes, patterns, multiple=(field == "INDEX" or (field == "FREQ" and frequency == "Auto")))
         if not matches:
             raise ValueError(f"No matching {name} codes in CPI metadata (codelist: {cl}).")
         # Request BOTH monthly and quarterly series; choose one for display later.
@@ -181,8 +183,8 @@ def build_cpi_key():
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_targeted_cpi(start_year, end_year):
-    key, decisions = build_cpi_key()
+def fetch_targeted_cpi(start_year, end_year, frequency="Auto"):
+    key, decisions = build_cpi_key(frequency)
     # ABS accepts SDMX positional keys in the data endpoint.
     url = f"{BASE_URL}/data/ABS,CPI,all/{key}"
     params = {"startPeriod": str(start_year), "endPeriod": str(end_year),
@@ -370,6 +372,11 @@ if dataset_name == "Consumer Price Index (CPI)":
         key="cpi_history_years",
         help="Controls both the ABS data request and the historical CPI graphs.",
     )
+    cpi_frequency_choice = st.sidebar.radio(
+        "CPI chart frequency", ["Auto", "Quarterly", "Monthly"],
+        index=1, horizontal=True, key="cpi_frequency_selector",
+        help="Quarterly requests historical quarterly observations directly from the ABS. Monthly may have shorter coverage."
+    )
     # Request one extra year to compute the first year-on-year observation.
     requested_start = (1960 if cpi_history_years == "All available"
                        else max(1960, int(end_year) - int(cpi_history_years) - 1))
@@ -405,7 +412,7 @@ try:
         if cpi_fast:
             try:
                 raw_df, request_url, cpi_decisions = fetch_targeted_cpi(
-                    effective_start_year, int(end_year)
+                    effective_start_year, int(end_year), cpi_frequency_choice
                 )
             except (requests.RequestException, ValueError, pd.errors.ParserError, ET.ParseError) as fast_error:
                 st.warning(
@@ -752,9 +759,13 @@ def prepare_cpi_visuals(source, time_column, labels, preferred_frequency="Auto")
     periods = data[time_column].astype(str)
     monthly = periods.str.fullmatch(r"\d{4}-\d{2}")
     quarterly = periods.str.fullmatch(r"\d{4}-Q[1-4]")
-    if preferred_frequency == "Quarterly" and quarterly.any():
+    if preferred_frequency == "Quarterly":
+        if not quarterly.any():
+            return pd.DataFrame(), "Quarterly selected, but ABS returned no quarterly CPI observations. Open CPI data coverage diagnostics and inspect the API request."
         use_monthly = False
-    elif preferred_frequency == "Monthly" and monthly.any():
+    elif preferred_frequency == "Monthly":
+        if not monthly.any():
+            return pd.DataFrame(), "Monthly selected, but ABS returned no monthly CPI observations."
         use_monthly = True
     elif preferred_frequency == "Auto":
         # Prefer quarterly if it covers meaningfully more history.
@@ -836,10 +847,15 @@ if active_view == VIEWS[1]:
     else:
         st.subheader("Inflation monitor")
         st.caption("ABS-inspired visuals · CPI expenditure groups · Annual percentage change is not weighted contribution to headline CPI")
-        cpi_frequency_choice = st.radio(
-            "CPI chart frequency", ["Auto", "Quarterly", "Monthly"], horizontal=True,
-            help="Auto chooses the longer historical series. Quarterly CPI is usually better for long-term comparisons."
-        )
+        st.caption(f"Selected CPI frequency: **{cpi_frequency_choice}**")
+        with st.expander("CPI data coverage diagnostics", expanded=False):
+            period_values = df[time_col].astype(str)
+            for freq_name, pattern in [("Monthly", r"\d{4}-\d{2}"), ("Quarterly", r"\d{4}-Q[1-4]")]:
+                match = period_values.str.fullmatch(pattern)
+                dates = df.loc[match, "_DATE"]
+                st.write(f"{freq_name}: {int(match.sum()):,} observations; " +
+                         (f"{dates.min():%b %Y} to {dates.max():%b %Y}" if not dates.empty else "none returned"))
+            st.caption("If Quarterly is selected but no quarterly observations were returned, the API request or available CPI series must be checked.")
         cpi, cpi_error = prepare_cpi_visuals(
             df[["_DATE", "_VALUE", time_col] + label_cols],
             time_col, label_cols, cpi_frequency_choice
