@@ -600,8 +600,8 @@ with trends_tab:
     else:
         plot_df["_PLOT_VALUE"] = plot_df["_VALUE"]
 
-    plot_df = plot_df.dropna(subset=["_PLOT_VALUE"])
-    
+        plot_df = plot_df.dropna(subset=["_PLOT_VALUE"])
+
         # Keep full transformed data for accurate summary statistics.
         stats_df = plot_df
 
