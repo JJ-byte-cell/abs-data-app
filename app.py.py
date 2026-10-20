@@ -6,24 +6,24 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# FIXED SCHEMA: Using versionless slashed pathways as officially required by the ABS REST specification
+# FIXED DATAFRAME KEYS: Standard SDMX format utilizing commas and the official 'all' version wildcard
 FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS/CPI",
-    "RES_PROP_INDEX - Property Price Indexes": "ABS/RES_PROP_INDEX",
-    "LABOUR_TURNOVER - Labour Turnover": "ABS/LABOUR_TURNOVER"
+    "CPI - Consumer Price Index": "ABS,CPI,all",
+    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,all",
+    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,all"
 }
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_path = FALLBACK_OPTIONS[selected_flow_name]
+selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
-if selected_flow_path:
-    # CLEAN URL STRUCTURE: Conforming directly to versionless path patterns to completely eliminate 404s
+if selected_flow_id:
+    # CLEAN URL STRUCTURE: Comma separators with an explicit data key filter path (/all) to avoid 404 responses
     base_domain = "https://data.api.abs.gov.au"
-    endpoint_path = f"/rest/data/{selected_flow_path}/all"
+    endpoint_path = f"/rest/data/{selected_flow_id}/all"
     api_url = f"{base_domain}{endpoint_path}?startPeriod={start_year}"
     
     st.subheader(f"Dataset: {selected_flow_name}")
@@ -48,13 +48,13 @@ if selected_flow_path:
                     else:
                         st.success(f"Successfully loaded {len(df_data)} live rows!")
                         
-                        # Strip spacing from column headers
+                        # Strip accidental leading or trailing blank spaces from headers
                         df_data.columns = df_data.columns.astype(str).str.strip()
                         
                         # Replace colons to avoid Vega-Altair chart configuration collisions
                         df_data.columns = df_data.columns.str.replace(':', ' -')
                         
-                        # Clean inner-cell whitespace strings
+                        # Clean inner-cell whitespace strings safely
                         for col in df_data.select_dtypes(include=['object']).columns:
                             df_data[col] = df_data[col].astype(str).str.strip()
                         
