@@ -20,7 +20,7 @@ This specialist interface streams live statistical matrices directly from the of
 # FIXED DATAFLOW KEYS: Explicit production versions combined with mandatory sdmx structures
 AVAILABLE_DATAFLOWS = {
     "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
-    "RES_PROP_INDEX - Residential Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
+    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
     "LABOUR_TURNOVER - Labour Turnover Matrix": "ABS,LABOUR_TURNOVER,1.0.0"
 }
 
@@ -132,7 +132,7 @@ if st.session_state.master_data_payload is not None:
         working_df = working_df.dropna(subset=[value_index])
         
         # Split layout into advanced multi-column filtering layouts
-        col1, col2 = st.columns()
+        col1, col2 = st.columns(2)
         
         with col1:
             st.markdown(f"**Filter Dimension:** `{segmentation_target}`")
@@ -193,4 +193,7 @@ if st.session_state.master_data_payload is not None:
         st.download_button(
             label="💾 Export Active Workspace Spreadsheet (CSV)",
             data=csv_io_stream.getvalue(),
-            file_name=f"abs_clean_extract_{st.session_state.active_dataflow_id.lower().replace(',', '_')}.csv",
+            file_name="abs_clean_extract.csv",
+            mime="text/csv"
+        )
+    else:
