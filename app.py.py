@@ -6,9 +6,9 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# FIXED: Explicitly map the strict version numbers (e.g., 1.0.0) as required by the ABS API paths to bypass 404 errors
+# FIXED: Updating dataflow registry references to match the active production versions (2.0.0 / 1.0.0)
 FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS,CPI,1.0.0",
+    "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
     "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
     "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,1.0.0"
 }
@@ -21,7 +21,7 @@ st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_id:
-    # Constructing standard SDMX RESTful API query link
+    # Constructing standard SDMX RESTful API query link matching ABS specifications
     base_domain = "https://data.api.abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
@@ -33,7 +33,7 @@ if selected_flow_id:
     if st.button("🚀 Fetch Live Data", type="primary"):
         with st.spinner("Connecting to live ABS API gateways..."):
             try:
-                # Request layout forcing CSV return array blocks
+                # Request layout forcing CSV return array blocks with both codes and names
                 headers = {
                     "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
                     "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
@@ -102,6 +102,7 @@ if selected_flow_id:
                             st.warning("Could not automatically align chart axes. View the raw grid expanded above.")
                 else:
                     st.error(f"ABS API Connection Refused. Server status code: {response.status_code}")
+                    st.info(f"Verify request structure against current documentation protocols.")
                     
             except Exception as e:
                 st.error(f"Data stream error: {e}")
