@@ -285,7 +285,7 @@ except ValueError as exc:
     st.stop()
 
     
-    raw_df, ["TIME_PERIOD", "TIME PERIOD"])
+    raw_df, ["TIME_PERIOD", "TIME PERIOD"]
 value_col = find_column(raw_df, ["OBS_VALUE", "OBS VALUE"])
 
 if time_col is None or value_col is None:
