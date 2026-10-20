@@ -601,6 +601,55 @@ with trends_tab:
         plot_df["_PLOT_VALUE"] = plot_df["_VALUE"]
 
     plot_df = plot_df.dropna(subset=["_PLOT_VALUE"])
+    
+        # Keep full transformed data for accurate summary statistics.
+        stats_df = plot_df
+
+        # Limit chart rendering to the 20 largest series.
+        MAX_SERIES = 20
+        MAX_POINTS_PER_SERIES = 500
+
+        series_sizes = (
+            plot_df.groupby("_SERIES")
+            .size()
+            .sort_values(ascending=False)
+        )
+
+        if len(series_sizes) > MAX_SERIES:
+            keep_series = series_sizes.head(MAX_SERIES).index
+
+            plot_df = plot_df[
+                plot_df["_SERIES"].isin(keep_series)
+            ].copy()
+
+            st.warning(
+                f"Showing {MAX_SERIES} series with the most observations "
+                f"out of {len(series_sizes)} total series. "
+                "Apply dimension filters to explore other series."
+            )
+
+        # Reduce plotted points while preserving the time order
+        # and the final observation of each series.
+        sampled_groups = []
+
+        for _, group in plot_df.groupby("_SERIES", sort=False):
+            if len(group) > MAX_POINTS_PER_SERIES:
+                step = (
+                    len(group) + MAX_POINTS_PER_SERIES - 1
+                ) // MAX_POINTS_PER_SERIES
+
+                group = pd.concat([
+                    group.iloc[::step],
+                    group.iloc[[-1]],
+                ]).drop_duplicates()
+
+            sampled_groups.append(group)
+
+        if sampled_groups:
+            plot_df = pd.concat(
+                sampled_groups,
+                ignore_index=True,
+            )
 
     y_titles = {
         "Original values": "ABS-reported value",
@@ -663,7 +712,7 @@ with trends_tab:
         st.markdown("### Summary statistics")
 
         stats = (
-            plot_df.groupby("_SERIES")["_PLOT_VALUE"]
+            stats_df.groupby("_SERIES")["_PLOT_VALUE"]
             .agg(["count", "mean", "median", "min", "max", "std"])
             .reset_index()
         )
