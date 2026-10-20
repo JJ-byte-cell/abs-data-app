@@ -190,9 +190,10 @@ if st.session_state.master_data_payload is not None:
         csv_io_stream = io.StringIO()
         filtered_matrix.to_csv(csv_io_stream, index=False)
         
-        st.download_button(st.download_button(
+        st.download_button(
     label="💾 Export Active Workspace Spreadsheet (CSV)",
     data=csv_io_stream.getvalue(),
     file_name="abs_clean_extract.csv",
     mime="text/csv"
 )
+
