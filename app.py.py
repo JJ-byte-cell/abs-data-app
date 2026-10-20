@@ -6,24 +6,23 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# Official dataflow registry keys accepted by the ABS API cluster
+# FIXED: Explicitly map the strict version numbers (e.g., 1.0.0) as required by the ABS API paths to bypass 404 errors
 FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS,CPI,all",
-    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,all",
-    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,all"
+    "CPI - Consumer Price Index": "ABS,CPI,1.0.0",
+    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
+    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,1.0.0"
 }
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-
-# FIXED: Safely extracting the direct dictionary value matching your selection
 selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_id:
-    base_domain = "https://abs.gov.au"
+    # Constructing standard SDMX RESTful API query link
+    base_domain = "https://data.api.abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
     api_url = f"{base_domain}{endpoint_path}{query_params}"
@@ -34,6 +33,7 @@ if selected_flow_id:
     if st.button("🚀 Fetch Live Data", type="primary"):
         with st.spinner("Connecting to live ABS API gateways..."):
             try:
+                # Request layout forcing CSV return array blocks
                 headers = {
                     "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
                     "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
@@ -57,7 +57,6 @@ if selected_flow_id:
                             df_data[col] = df_data[col].astype(str).str.strip()
                         
                         # --- EXPLICIT AXIS CORRECTION ---
-                        # Map messy structural headers to clean normalized layout configurations
                         rename_dict = {}
                         for col in df_data.columns:
                             col_upper = col.upper()
@@ -91,7 +90,7 @@ if selected_flow_id:
                                 selected_groups = st.multiselect(
                                     "Filter chart lines:", 
                                     options=unique_groups, 
-                                    default=unique_groups[:3] # Show the first 3 categories automatically
+                                    default=unique_groups[:3]
                                 )
                                 
                                 chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
