@@ -6,24 +6,24 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# Official dataflow registry keys accepted by the ABS API cluster
+# FIX: Dropping the strict version numbers (e.g. ,2.0.0) so the API automatically grabs the newest table version
 FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
-    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
-    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,1.0.0"
+    "CPI - Consumer Price Index": "CPI",
+    "RES_PROP_INDEX - Property Price Indexes": "RES_PROP_INDEX",
+    "LABOUR_TURNOVER - Labour Turnover": "LABOUR_TURNOVER"
 }
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_ref = FALLBACK_OPTIONS[selected_flow_name]
+selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
-if selected_flow_ref:
-    # CRITICAL URL PATCH: Strict functional separation of host domain strings and dataflow endpoints
-    base_domain = "https://abs.gov.au"
-    endpoint_path = f"/rest/data/{selected_flow_ref}/all"
+if selected_flow_id:
+    # Build clean versionless query path structure
+    base_domain = "https://data.api.abs.gov.au"
+    endpoint_path = f"/rest/data/{selected_flow_id}/all"
     query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
     api_url = f"{base_domain}{endpoint_path}{query_params}"
     
@@ -87,6 +87,7 @@ if selected_flow_ref:
                             st.warning("Could not map layout axes automatically. Explore raw grid details above.")
                 else:
                     st.error(f"ABS API Connection Refused. Server status code: {response.status_code}")
+                    st.info("The path version formatting structure might be rejecting the current automated data key.")
                     
             except Exception as e:
                 st.error(f"Data stream error: {e}")
