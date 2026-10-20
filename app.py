@@ -1,5 +1,6 @@
 
 import io
+import time
 import re
 from datetime import datetime
 
@@ -288,7 +289,23 @@ def standardise_abs_data(raw_df):
 
     df = raw_df.copy()
 
-    df["_DATE"] = df[time_col].map(parse_period)
+    # Vectorised parsing is substantially faster than Python row-by-row map.
+    periods = df[time_col].astype("string").str.strip()
+    quarterly = periods.str.fullmatch(r"\d{4}-Q[1-4]").fillna(False)
+    monthly = periods.str.fullmatch(r"\d{4}-\d{2}").fillna(False)
+    annual = periods.str.fullmatch(r"\d{4}").fillna(False)
+    df["_DATE"] = pd.NaT
+    df.loc[quarterly, "_DATE"] = pd.to_datetime(
+        periods.loc[quarterly].str[:4] + "-" +
+        ((periods.loc[quarterly].str[-1].astype(int) - 1) * 3 + 1).astype(str).str.zfill(2) + "-01",
+        errors="coerce",
+    )
+    df.loc[monthly, "_DATE"] = pd.to_datetime(periods.loc[monthly] + "-01", errors="coerce")
+    df.loc[annual, "_DATE"] = pd.to_datetime(periods.loc[annual] + "-01-01", errors="coerce")
+    other = ~(quarterly | monthly | annual)
+    if other.any():
+        df.loc[other, "_DATE"] = pd.to_datetime(periods.loc[other], errors="coerce")
+    df["_DATE"] = pd.to_datetime(df["_DATE"], errors="coerce")
     df["_VALUE"] = pd.to_numeric(df[value_col], errors="coerce")
 
     excluded = {
@@ -312,7 +329,10 @@ def standardise_abs_data(raw_df):
 
     for col in dimension_cols:
         label_col = col + " [label]"
-        df[label_col] = clean_label(df[col])
+        # Map unique codes once instead of running a regex on every observation.
+        unique_values = df[col].dropna().unique()
+        mapping = dict(zip(unique_values, clean_label(pd.Series(unique_values)).tolist()))
+        df[label_col] = df[col].map(mapping).astype("category")
         label_cols.append(label_col)
 
     df = df.dropna(subset=["_DATE"])
@@ -383,12 +403,10 @@ if filterable_cols:
         if selected != "All":
             selected_dimensions[col] = selected
 
-filtered_df = df.copy()
-
+mask = pd.Series(True, index=df.index)
 for col, selected in selected_dimensions.items():
-    filtered_df = filtered_df[
-        filtered_df[col].astype(str) == selected
-    ]
+    mask &= df[col].eq(selected)
+filtered_df = df.loc[mask].copy()
 
 if filtered_df.empty:
     st.warning("No observations match your selected filters.")
@@ -402,12 +420,11 @@ series_identity = [
 ]
 
 if series_identity:
-    filtered_df["_SERIES"] = (
-        filtered_df[series_identity]
-        .astype("string")
-        .fillna("Unknown")
-        .agg(" | ".join, axis=1)
-    )
+    # Encode combinations first: avoid expensive Python row-wise string joins.
+    keys = pd.MultiIndex.from_frame(filtered_df[series_identity].astype("string").fillna("Unknown"))
+    ids, uniques = pd.factorize(keys, sort=False)
+    names = [" | ".join(map(str, item)) for item in uniques]
+    filtered_df["_SERIES"] = pd.Categorical.from_codes(ids, categories=names)
 else:
     filtered_df["_SERIES"] = dataset_name
 
@@ -416,22 +433,17 @@ else:
 # 9. DASHBOARD TABS
 # =========================================================
 
-overview_tab, cpi_tab, trends_tab, data_tab, quality_tab = st.tabs(
-    [
-        "📊 Overview",
-        "📉 CPI Deep Dive",
-        "📈 Trends & Analysis",
-        "🗃️ Data Explorer",
-        "🩺 Data Quality",
-    ]
-)
+# Unlike st.tabs, this executes ONLY the selected view. Streamlit tabs eagerly
+# compute every chart, table and quality check on every widget interaction.
+VIEWS = ["📊 Overview", "📉 CPI Deep Dive", "📈 Trends & Analysis", "🗃️ Data Explorer", "🩺 Data Quality"]
+active_view = st.radio("Dashboard view", VIEWS, horizontal=True, label_visibility="collapsed")
 
 
 # =========================================================
 # 10. OVERVIEW
 # =========================================================
 
-with overview_tab:
+if active_view == VIEWS[0]:
 
     valid = filtered_df.dropna(subset=["_VALUE"]).copy()
 
@@ -624,13 +636,13 @@ def prepare_cpi_visuals(source, time_column, labels):
     data.attrs["frequency"] = frequency
     return data, ""
 
-with cpi_tab:
+if active_view == VIEWS[1]:
     if dataset_name != "Consumer Price Index (CPI)":
         st.info("Choose Consumer Price Index (CPI) in the sidebar to see the CPI analysis.")
     else:
         st.subheader("Inflation monitor")
         st.caption("ABS-inspired visuals · CPI expenditure groups · Annual percentage change is not weighted contribution to headline CPI")
-        cpi, cpi_error = prepare_cpi_visuals(df, time_col, label_cols)
+        cpi, cpi_error = prepare_cpi_visuals(df[["_DATE", "_VALUE", time_col] + label_cols], time_col, label_cols)
         if cpi_error:
             st.warning(cpi_error)
             st.caption("The API's dimensions may differ across ABS releases. Inspect the Data Explorer to identify a consistent index-number series.")
@@ -704,7 +716,7 @@ with cpi_tab:
 # 11. INTERACTIVE CHARTS
 # =========================================================
 
-with trends_tab:
+if active_view == VIEWS[2]:
 
     c1, c2 = st.columns(2)
 
@@ -906,7 +918,7 @@ with trends_tab:
 # 12. DATA EXPLORER AND EXPORTS
 # =========================================================
 
-with data_tab:
+if active_view == VIEWS[3]:
 
     st.markdown("### Filtered observations")
 
@@ -925,11 +937,8 @@ with data_tab:
         "matching rows. Download the CSV for the full dataset."
     )
 
-    st.dataframe(
-        preview_df,
-        hide_index=True,
-        use_container_width=True,
-    )
+    if st.checkbox("Show observation preview (up to 5,000 rows)", value=False):
+        st.dataframe(preview_df, hide_index=True, use_container_width=True)
 
     # Invalidate previously prepared downloads when dataset/date/filter choices change.
     download_signature = (
@@ -982,7 +991,7 @@ with data_tab:
 # 13. DATA QUALITY CHECKS
 # =========================================================
 
-with quality_tab:
+if active_view == VIEWS[4]:
 
     st.markdown("### Automated data-quality report")
 
@@ -1030,16 +1039,8 @@ with quality_tab:
         f"{report['Duplicate observations']:,}",
     )
 
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"Check": key, "Result": value}
-                for key, value in report.items()
-            ]
-        ),
-        hide_index=True,
-        use_container_width=True,
-    )
+    with st.expander("Detailed quality checks"):
+        st.dataframe(pd.DataFrame([{"Check": key, "Result": value} for key, value in report.items()]), hide_index=True, use_container_width=True)
 
     # Basic anomaly screening within each individual series.
     ordered = filtered_df.sort_values(["_SERIES", "_DATE"]).copy()
@@ -1087,6 +1088,6 @@ st.divider()
 
 st.caption(
     "Source: Australian Bureau of Statistics Data API. "
-    "Data is cached for one hour. Latest observation dates depend "
+    "Data is cached for one hour. Views render on demand. Latest observation dates depend "
     "on the publication schedule of each dataset."
 )
