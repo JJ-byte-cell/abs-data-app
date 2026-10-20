@@ -2,6 +2,7 @@
 import io
 import time
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import pandas as pd
@@ -71,6 +72,132 @@ def create_session():
 
     session.mount("https://", HTTPAdapter(max_retries=retry))
     return session
+
+
+# Resolve ABS dimension positions and codes from the live SDMX structure.
+# Do not assume the order of CPI dimensions or hardcode codes across releases.
+def _local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_cpi_structure():
+    url = f"{BASE_URL}/dataflow/ABS/CPI/+"
+    response = create_session().get(
+        url, params={"references": "all"},
+        headers={"Accept": "application/vnd.sdmx.structure+xml;version=2.1"},
+        timeout=(10, 35),
+    )
+    response.raise_for_status()
+    root = ET.fromstring(response.content)
+    codelists = {}
+    for el in root.iter():
+        if _local(el.tag) != "Codelist":
+            continue
+        codes = {}
+        for code in el:
+            if _local(code.tag) != "Code":
+                continue
+            labels = [n.text.strip() for n in code.iter()
+                      if _local(n.tag) == "Name" and n.text]
+            if labels:
+                codes[code.get("id")] = labels[0]
+        codelists[el.get("id")] = codes
+
+    candidates = []
+    for node in root.iter():
+        if _local(node.tag) != "DataStructure":
+            continue
+        dimensions = []
+        for dim in node.iter():
+            if _local(dim.tag) not in ("Dimension", "TimeDimension"):
+                continue
+            if _local(dim.tag) == "TimeDimension":
+                continue
+            enumerations = [e for e in dim.iter() if _local(e.tag) == "Enumeration"]
+            refs = [e for enum in enumerations for e in enum.iter()
+                    if _local(e.tag) == "Ref" and e.get("id")]
+            cl = refs[0].get("id") if refs else None
+            dimensions.append((int(dim.get("position", len(dimensions) + 1)),
+                               dim.get("id", ""), cl))
+        if dimensions:
+            candidates.append(sorted(dimensions))
+    if not candidates:
+        raise ValueError("ABS CPI data structure dimensions were not found")
+    dims = max(candidates, key=len)
+    return dims, codelists
+
+
+def _choose_codes(codes, patterns, multiple=False):
+    matched = [code for code, label in codes.items()
+               if any(re.search(p, label, re.I) for p in patterns)]
+    return matched if multiple else matched[:1]
+
+
+def build_cpi_key():
+    dims, codelists = get_cpi_structure()
+    parts = []
+    decisions = []
+    essential = {"MEASURE", "INDEX", "REGION", "FREQ"}
+    found = set()
+    for _, name, cl in dims:
+        upper = name.upper()
+        codes = codelists.get(cl, {})
+        if "MEASURE" in upper:
+            patterns = [r"^Index numbers?$", r"^Index number"]
+            field = "MEASURE"
+        elif upper == "INDEX" or "EXPENDITURE" in upper:
+            patterns = [r"^All groups CPI$", r"^All groups$", r"^Food and non-alcoholic beverages$",
+                        r"^Alcohol and tobacco$", r"^Clothing and footwear$", r"^Housing$",
+                        r"^Furnishings, household equipment and services$", r"^Health$",
+                        r"^Transport$", r"^Communication$", r"^Recreation and culture$",
+                        r"^Education$", r"^Insurance and financial services$"]
+            field = "INDEX"
+        elif "REGION" in upper:
+            patterns = [r"^Australia$"]
+            field = "REGION"
+        elif upper == "FREQ" or "FREQUENCY" in upper:
+            patterns = [r"^Monthly$", r"^Quarterly$"]
+            field = "FREQ"
+        elif "TSEST" in upper or "ADJUST" in upper:
+            patterns = [r"^Original$"]
+            field = "TSEST"
+        else:
+            parts.append("")
+            continue
+        found.add(field)
+        matches = _choose_codes(codes, patterns, multiple=(field == "INDEX"))
+        if not matches:
+            raise ValueError(f"No matching {name} codes in CPI metadata (codelist: {cl}).")
+        # Prefer monthly for headline tracking; do not mix frequencies.
+        if field == "FREQ":
+            matches = matches[:1]
+        parts.append("+".join(matches))
+        decisions.append(f"{name}: {', '.join(matches)}")
+    missing = essential - found
+    if missing:
+        raise ValueError(f"CPI metadata is missing expected dimensions: {', '.join(sorted(missing))}")
+    return ".".join(parts), decisions
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_targeted_cpi(start_year, end_year):
+    key, decisions = build_cpi_key()
+    # ABS accepts SDMX positional keys in the data endpoint.
+    url = f"{BASE_URL}/data/ABS,CPI,all/{key}"
+    params = {"startPeriod": str(start_year), "endPeriod": str(end_year),
+              "dimensionAtObservation": "AllDimensions", "format": "csv"}
+    response = create_session().get(url, params=params, headers=HEADERS,
+                                    timeout=(10, 60))
+    if not response.ok:
+        raise ValueError(f"Targeted ABS CPI query returned HTTP {response.status_code}: {response.text[:400]}")
+    if not response.content or response.text.lstrip().startswith("<"):
+        raise ValueError("Targeted CPI response was empty or not CSV")
+    data = pd.read_csv(io.BytesIO(response.content), dtype=str, low_memory=False)
+    if data.empty:
+        raise ValueError("Targeted CPI query returned no observations")
+    data.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in data.columns]
+    return data, response.url, decisions
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -235,9 +362,15 @@ end_year = st.sidebar.number_input(
 
 if st.sidebar.button("🔄 Refresh live data", type="primary"):
     fetch_abs_data.clear()
+    fetch_targeted_cpi.clear()
+    get_cpi_structure.clear()
     st.rerun()
 
-st.sidebar.caption("Data cache: 1 hour")
+cpi_fast = False
+if dataset_name == "Consumer Price Index (CPI)":
+    cpi_fast = st.sidebar.toggle("Fast CPI mode (targeted ABS request)", value=True,
+                                 help="Downloads selected CPI series rather than the entire CPI dataflow.")
+st.sidebar.caption("Observation cache: 1 hour · CPI structure cache: 24 hours")
 st.sidebar.markdown(
     "[ABS Data API documentation](https://www.abs.gov.au/"
     "statistics/application-programming-interfaces-apis/"
@@ -251,11 +384,14 @@ st.sidebar.markdown(
 
 try:
     with st.spinner("Connecting to the ABS Data API..."):
-        raw_df, request_url = fetch_abs_data(
-            dataset["flow"],
-            int(start_year),
-            int(end_year),
-        )
+        if cpi_fast:
+            raw_df, request_url, cpi_decisions = fetch_targeted_cpi(
+                int(start_year), int(end_year)
+            )
+        else:
+            raw_df, request_url = fetch_abs_data(
+                dataset["flow"], int(start_year), int(end_year)
+            )
 
 except requests.RequestException as exc:
     st.error(f"ABS API connection failed: {exc}")
@@ -267,6 +403,8 @@ except requests.RequestException as exc:
 
 except (ValueError, pd.errors.ParserError) as exc:
     st.error(f"Unable to process the ABS response: {exc}")
+    if cpi_fast:
+        st.info("The ABS structure or CPI codes may have changed. Fast mode does not silently fall back to downloading the entire dataset. Turn off Fast CPI mode to use the original full-data explorer.")
     st.stop()
 
 
@@ -367,6 +505,8 @@ st.subheader(dataset_name)
 
 with st.expander("API request details"):
     st.write("**Dataflow:**", dataset["flow"])
+    if cpi_fast:
+        st.write("**Fast CPI key selection:**", "; ".join(cpi_decisions))
     st.write("**Request URL:**")
     st.code(request_url)
     st.write(f"**Rows received:** {len(df):,}")
@@ -603,27 +743,50 @@ def prepare_cpi_visuals(source, time_column, labels):
     else:
         return pd.DataFrame(), "No monthly or quarterly CPI series detected"
 
-    # Select a single coherent slice across all other SDMX dimensions.
-    # Prefer Australia, original (not seasonally adjusted) and index number.
+    # Select a coherent series family using all SDMX dimensions. In ABS CSV,
+    # ancillary columns such as OBS_COMMENT can produce repeated group/date rows.
+    # First choose a preferred dimension slice, then validate numeric conflicts.
+    data["Group"] = data[group_col].astype(str).str.strip()
+    data = data.loc[data["Group"].isin(CPI_GROUPS | {"All groups CPI", "All groups"})].copy()
+    if data.empty:
+        return pd.DataFrame(), "No comparable CPI expenditure groups found"
+
     other_cols = [c for c in labels if c != group_col and c in data]
     for col in other_cols:
         choices = data[col].dropna().astype(str).unique().tolist()
         if len(choices) <= 1:
             continue
-        preferences = [r"^Australia$", r"^Original$", r"^Index number", r"^Index Numbers"]
-        selected = next((v for pat in preferences for v in choices if re.search(pat, v, re.I)), None)
+        name = col.upper()
+        preferences = (
+            [r"^Australia$"] if "REGION" in name else
+            [r"^Original$"] if "TSEST" in name or "ADJUST" in name else
+            [r"^Index numbers?$", r"^Index number"] if "MEASURE" in name else
+            []
+        )
+        selected = next((v for pat in preferences for v in choices
+                         if re.search(pat, v, re.I)), None)
         if selected is None:
-            # Select the most common slice rather than mixing incompatible series.
-            selected = data[col].astype(str).value_counts().index[0]
+            # Prefer the slice with the widest time/category coverage.
+            coverage = data.groupby(col, observed=True).agg(
+                dates=("_DATE", "nunique"), rows=("_VALUE", "size")
+            ).sort_values(["dates", "rows"], ascending=False)
+            selected = str(coverage.index[0])
         data = data.loc[data[col].astype(str) == selected].copy()
+        if data.empty:
+            return pd.DataFrame(), f"No CPI observations after selecting {col}"
 
-    data["Group"] = data[group_col].astype(str).str.strip()
-    data = data.loc[data["Group"].isin(CPI_GROUPS | {"All groups CPI", "All groups"})].copy()
-    if data.empty:
-        return pd.DataFrame(), "No comparable CPI expenditure groups found"
-    # Require unique observation per group and date: duplicates mean ambiguity.
-    if data.duplicated(["Group", "_DATE"]).any():
-        return pd.DataFrame(), "Multiple CPI series remain per group/date; select a single measure and geography"
+    # The API may repeat an identical value due to observation metadata.
+    # Collapse ONLY equal values; conflicting values must not be averaged.
+    conflicts = data.groupby(["Group", "_DATE"], observed=True)["_VALUE"].nunique()
+    conflicting = conflicts[conflicts > 1]
+    if not conflicting.empty:
+        example = conflicting.index[0]
+        return pd.DataFrame(), (
+            f"Conflicting CPI observations for {example[0]} on "
+            f"{example[1]:%Y-%m-%d}. Select a specific CPI index, "
+            "region, adjustment and frequency in the filters."
+        )
+    data = data.drop_duplicates(subset=["Group", "_DATE"], keep="first")
     data = data.sort_values(["Group", "_DATE"])
     # Match exact calendar periods to avoid incorrect shifts if a month is missing.
     data["_PERIOD"] = data["_DATE"].dt.to_period("M" if lag == 12 else "Q")
@@ -645,7 +808,7 @@ if active_view == VIEWS[1]:
         cpi, cpi_error = prepare_cpi_visuals(df[["_DATE", "_VALUE", time_col] + label_cols], time_col, label_cols)
         if cpi_error:
             st.warning(cpi_error)
-            st.caption("The API's dimensions may differ across ABS releases. Inspect the Data Explorer to identify a consistent index-number series.")
+            st.caption("The CPI view selects a consistent index-number family independently of the general filters. If no chart appears, inspect the CPI series and ABS dimension labels in Data Explorer.")
         else:
             available = cpi.dropna(subset=["Annual %"])
             if available.empty:
