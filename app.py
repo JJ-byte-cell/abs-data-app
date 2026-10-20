@@ -361,6 +361,24 @@ end_year = st.sidebar.number_input(
     value=current_year,
 )
 
+# History control is declared BEFORE the API request so it can drive retrieval.
+cpi_history_years = 5
+if dataset_name == "Consumer Price Index (CPI)":
+    cpi_history_years = st.sidebar.select_slider(
+        "CPI history (years)",
+        options=[2, 3, 5, 10, 15, 20, "All available"],
+        value=5,
+        key="cpi_history_years",
+        help="Controls both the ABS data request and the historical CPI graphs.",
+    )
+    # Request one extra year to compute the first year-on-year observation.
+    requested_start = (1960 if cpi_history_years == "All available"
+                       else max(1960, int(end_year) - int(cpi_history_years) - 1))
+    effective_start_year = min(int(start_year), requested_start)
+    st.sidebar.caption(f"CPI data requested from {effective_start_year} (includes annual-change lookback).")
+else:
+    effective_start_year = int(start_year)
+
 if st.sidebar.button("🔄 Refresh live data", type="primary"):
     fetch_abs_data.clear()
     fetch_targeted_cpi.clear()
@@ -388,7 +406,7 @@ try:
         if cpi_fast:
             try:
                 raw_df, request_url, cpi_decisions = fetch_targeted_cpi(
-                    int(start_year), int(end_year)
+                    effective_start_year, int(end_year)
                 )
             except (requests.RequestException, ValueError, pd.errors.ParserError, ET.ParseError) as fast_error:
                 st.warning(
@@ -397,12 +415,12 @@ try:
                     f"Technical detail: {str(fast_error)[:350]}"
                 )
                 raw_df, request_url = fetch_abs_data(
-                    dataset["flow"], int(start_year), int(end_year)
+                    dataset["flow"], effective_start_year, int(end_year)
                 )
                 cpi_decisions = ["Fallback: original full CPI request"]
         else:
             raw_df, request_url = fetch_abs_data(
-                dataset["flow"], int(start_year), int(end_year)
+                dataset["flow"], effective_start_year, int(end_year)
             )
 
 except (requests.RequestException, ValueError, pd.errors.ParserError, ET.ParseError) as exc:
@@ -818,18 +836,15 @@ if active_view == VIEWS[1]:
             else:
                 last_period = available["_DATE"].max()
                 st.markdown("#### Historical CPI analysis")
-                history_years = st.select_slider(
-                    "History shown in CPI charts",
-                    options=[2, 3, 5, 10, 15, 20, "All available"],
-                    value=5,
-                    key="cpi_history_years",
-                )
+                history_years = cpi_history_years
                 if history_years == "All available":
                     history = available
                 else:
                     cutoff = last_period - pd.DateOffset(years=history_years)
                     history = available.loc[available["_DATE"] >= cutoff].copy()
-                st.caption(f"Showing {history['_DATE'].min():%b %Y} to {last_period:%b %Y}. Historical coverage depends on the API request's start year in the sidebar.")
+                st.caption(f"Showing {history['_DATE'].min():%b %Y} to {last_period:%b %Y}. Requested data starts in {effective_start_year}; earlier CPI series may not be available at the same frequency.")
+                if history["_DATE"].min() > last_period - pd.DateOffset(years=history_years if isinstance(history_years, int) else 100):
+                    st.info("The selected ABS CPI series has less history than requested. Monthly CPI coverage may be shorter than quarterly CPI coverage; consider a quarterly series for longer-term comparisons.")
                 latest = available.loc[available["_DATE"] == last_period].copy()
                 groups = latest[latest["Group"].isin(CPI_GROUPS)].sort_values("Annual %")
                 headline = history[history["Group"].isin(["All groups CPI", "All groups"])].sort_values("_DATE")
