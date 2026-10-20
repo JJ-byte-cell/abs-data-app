@@ -6,7 +6,7 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# Official dataflow registry keys accepted by the ABS API cluster
+# Dataflow registry references matching active production versions
 FALLBACK_OPTIONS = {
     "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
     "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
@@ -21,7 +21,7 @@ st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_id:
-    base_domain = "https://abs.gov.au"
+    base_domain = "https://data.api.abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
     api_url = f"{base_domain}{endpoint_path}{query_params}"
@@ -40,36 +40,37 @@ if selected_flow_id:
                 response = requests.get(api_url, headers=headers, timeout=20)
                 
                 if response.status_code == 200:
-                    # Read the raw text line by line to safely catch and clean duplicate column names
-                    lines = response.text.split('\n')
+                    # --- FIX FOR DUPLICATE COLUMNS ---
+                    # Split raw API text by lines
+                    lines = response.text.splitlines()
+                    
                     if lines:
-                        header_line = lines[0].strip().split(',')
+                        # Extract and parse the very first row (the header)
+                        header_line = lines[0].split(',')
                         
-                        # FIX: Scan headers and flag duplicates by appending an index number (e.g., TIME_PERIOD.1)
-                        seen = {}
-                        new_headers = []
-                        for item in header_line:
-                            clean_item = item.strip().replace('"', '')
-                            if clean_item in seen:
-                                seen[clean_item] += 1
-                                new_headers.append(f"{clean_item}.{seen[clean_item]}")
+                        # Dynamically find duplicates and rename them (e.g., TIME_PERIOD -> TIME_PERIOD.1)
+                        seen_columns = {}
+                        unique_headers = []
+                        for col in header_line:
+                            clean_col = col.strip().replace('"', '')
+                            if clean_col in seen_columns:
+                                seen_columns[clean_col] += 1
+                                unique_headers.append(f"{clean_col}.{seen_columns[clean_col]}")
                             else:
-                                seen[clean_item] = 0
-                                new_headers.append(clean_item)
+                                seen_columns[clean_col] = 0
+                                unique_headers.append(clean_col)
                         
-                        # Reassemble the CSV data safely with our new, unique column names
-                        csv_data = ",".join(new_headers) + "\n" + "\n".join(lines[1:])
-                        df_data = pd.read_csv(io.StringIO(csv_data))
+                        # Reconstruct the CSV body safely with the unique headers
+                        sanitized_csv = ",".join(unique_headers) + "\n" + "\n".join(lines[1:])
+                        df_data = pd.read_csv(io.StringIO(sanitized_csv))
                     
                     if df_data.empty:
                         st.warning("The ABS API returned an empty dataset for this selection.")
                     else:
                         st.success(f"Successfully loaded {len(df_data)} live rows!")
                         
-                        # Strip accidental leading or trailing blank spaces from headers
+                        # Clean spaces out of headers and row strings
                         df_data.columns = df_data.columns.astype(str).str.strip()
-                        
-                        # Clean whitespace errors out of cell data rows themselves
                         for col in df_data.select_dtypes(include=['object']).columns:
                             df_data[col] = df_data[col].astype(str).str.strip()
                         
@@ -77,6 +78,7 @@ if selected_flow_id:
                         rename_dict = {}
                         for col in df_data.columns:
                             col_upper = col.upper()
+                            # Prioritize the original un-suffixed TIME_PERIOD column for our graph
                             if "TIME_PERIOD" in col_upper and "." not in col_upper:
                                 rename_dict[col] = "TIME_PERIOD"
                             elif "OBS_VALUE" in col_upper or "OBS VALUE" in col_upper or "VALUE" in col_upper:
@@ -98,7 +100,7 @@ if selected_flow_id:
                         value_col = "OBS_VALUE" if "OBS_VALUE" in df_data.columns else None
                         group_col = "DATA_GROUP" if "DATA_GROUP" in df_data.columns else None
                         
-                        # Fallback to explicit ABS column names if wildcard mapping misses
+                        # Fallback explicit strings if column matching misses
                         if not group_col:
                             for alternate in ['INDEX: Index', 'MEASURE: Measure', 'REGION: Region']:
                                 if alternate in df_data.columns:
