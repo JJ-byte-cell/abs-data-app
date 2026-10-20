@@ -17,11 +17,11 @@ This specialist interface streams live statistical matrices directly from the of
 *Data conforms to the global SDMX 2.1 international information exchange standard.*
 """)
 
-# Verified, production-ready master dataflow identifiers mapped against the ABS Gateway
+# FIXED DATAFLOW KEYS: Explicit production versions combined with mandatory sdmx structures
 AVAILABLE_DATAFLOWS = {
-    "CPI - Consumer Price Index": "ABS,CPI,latest",
-    "RES_PROP_INDEX - Residential Property Price Indexes": "ABS,RES_PROP_INDEX,latest",
-    "LABOUR_TURNOVER - Labour Turnover Matrix": "ABS,LABOUR_TURNOVER,latest"
+    "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
+    "RES_PROP_INDEX - Residential Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
+    "LABOUR_TURNOVER - Labour Turnover Matrix": "ABS,LABOUR_TURNOVER,1.0.0"
 }
 
 # 2. Sidebar Navigation Control
@@ -33,7 +33,6 @@ st.sidebar.header("⏳ 2. Primary Date Constraints")
 start_year = st.sidebar.number_input("Start Period (Year):", min_value=2000, max_value=2026, value=2018)
 
 # 3. Session State Caching Layers
-# Prevents layout refreshes from making unnecessary API server round-trips
 if "master_data_payload" not in st.session_state:
     st.session_state.master_data_payload = None
 if "active_dataflow_id" not in st.session_state:
@@ -41,9 +40,9 @@ if "active_dataflow_id" not in st.session_state:
 if "active_filter_year" not in st.session_state:
     st.session_state.active_filter_year = None
 
-# Constructing standard SDMX RESTful API query link matching ABS specifications
+# FIXED URL PATHWAY: Adding 'dimensionAtObservation=AllDimensions' as strictly dictated by ABS CSV specifications
 base_gateway = "https://data.api.abs.gov.au/rest/data"
-query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}"
+query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}&dimensionAtObservation=AllDimensions"
 
 # If sidebar parameters change, invalidate the memory cache to force a clean fetch
 if (st.session_state.active_dataflow_id != target_flow_id) or (st.session_state.active_filter_year != start_year):
@@ -78,16 +77,13 @@ if st.button("🚀 Ingest Live Data Stream", type="primary"):
                     df_raw.columns = df_raw.columns.astype(str).str.strip()
                     
                     # Vega-Altair chart engine compatibility translation
-                    # Colons (:) mimic Altair visual type encodings (like :Q or :T), crashing rendering metrics.
-                    # We securely translate all inline colons to distinct structural hyphens.
                     df_raw.columns = df_raw.columns.str.replace(':', ' -')
                     
                     # Clean inner-cell whitespace strings across all descriptive categorical objects
                     for text_column in df_raw.select_dtypes(include=['object']).columns:
                         df_raw[text_column] = df_raw[text_column].astype(str).str.strip()
                         
-                    # Handle Pandas column header duplicate index generations automatically
-                    # Standardizes time dimensions cleanly across volatile structures
+                    # Standardizes time and value dimensions cleanly across volatile structures
                     normalized_headers = {}
                     for column_name in df_raw.columns:
                         normalized_upper = column_name.upper()
@@ -104,7 +100,7 @@ if st.button("🚀 Ingest Live Data Stream", type="primary"):
                     st.success(f"Sanitized Data Matrix Locked: {len(df_raw)} multi-dimensional rows parsed.")
             else:
                 st.error(f"ABS API Connection Terminated. Server Status Code: {api_response.status_code}")
-                st.info("System Flag: Verify API endpoint availability or firewall permission profiles.")
+                st.info(f"Response Body: {api_response.text}")
                 
         except Exception as network_error:
             st.error(f"Inbound Pipeline Crash: {network_error}")
@@ -136,7 +132,7 @@ if st.session_state.master_data_payload is not None:
         working_df = working_df.dropna(subset=[value_index])
         
         # Split layout into advanced multi-column filtering layouts
-        col1, col2 = st.columns([1, 2])
+        col1, col2 = st.columns()
         
         with col1:
             st.markdown(f"**Filter Dimension:** `{segmentation_target}`")
@@ -158,7 +154,7 @@ if st.session_state.master_data_payload is not None:
                 if selected_region != "All Regions":
                     working_df = working_df[working_df[region_col] == selected_region]
                     
-        # Apply dimensional data slices instantly in local memory (Zero latency page re-renders)
+        # Apply dimensional data slices instantly in local memory
         if segmentation_target and target_selection:
             filtered_matrix = working_df[working_df[segmentation_target].isin(target_selection)]
         else:
@@ -188,3 +184,13 @@ if st.session_state.master_data_payload is not None:
             
         # 7. Enterprise Export Engine Block
         st.markdown("### 📥 Extract Filtered Pipeline")
+        with st.expander("🔍 Inspect Active Filtered Data Grid", expanded=False):
+            st.dataframe(filtered_matrix, use_container_width=True)
+            
+        csv_io_stream = io.StringIO()
+        filtered_matrix.to_csv(csv_io_stream, index=False)
+        
+        st.download_button(
+            label="💾 Export Active Workspace Spreadsheet (CSV)",
+            data=csv_io_stream.getvalue(),
+            file_name=f"abs_clean_extract_{st.session_state.active_dataflow_id.lower().replace(',', '_')}.csv",
