@@ -30,7 +30,7 @@ if "current_year" not in st.session_state:
 
 if selected_flow_id:
     # CLEAN URL STRUCTURE: Versionless identifiers combined with /all endpoint pathing
-    base_domain = "https://data.api.abs.gov.au"
+    base_domain = "https://abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     api_url = f"{base_domain}{endpoint_path}?startPeriod={start_year}"
     
@@ -59,11 +59,11 @@ if selected_flow_id:
                     if df_raw.empty:
                         st.warning("The ABS API returned an empty dataset for this selection.")
                     else:
-                        # Clean space formatting from column headers
+                        # Strip accidental leading or trailing blank spaces from headers
                         df_raw.columns = df_raw.columns.astype(str).str.strip()
                         
-                        # Replace colons to avoid Vega-Altair chart configuration collisions
-                        df_raw.columns = df_raw.str.replace(':', ' -')
+                        # FIXED LINE HERE: Properly targets df_raw.columns.str instead of just df_raw.str
+                        df_raw.columns = df_raw.columns.str.replace(':', ' -')
                         
                         # Clean inner-cell whitespace strings safely
                         for col in df_raw.select_dtypes(include=['object']).columns:
