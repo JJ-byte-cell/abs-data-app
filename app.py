@@ -502,6 +502,173 @@ with overview_tab:
                 "units and must not be compared as raw levels."
             )
 
+        # ABS-style visual summary of the latest CPI movements.
+        # This is shown only for the CPI dataset and only when the returned
+        # dimensions contain a recognisable expenditure-group dimension.
+        if dataset_name == "Consumer Price Index (CPI)":
+            st.markdown("### What is moving CPI?")
+            st.caption(
+                "Annual percentage change by CPI group, using the latest "
+                "available observations. This shows each group's inflation "
+                "rate, not its weighted contribution to headline CPI."
+            )
+
+            cpi_df = df.copy()
+
+            # Prefer a measure that represents index numbers. If the API
+            # returns explicit annual percentage-change observations instead,
+            # use those directly.
+            measure_cols = [
+                col for col in label_cols
+                if any(word in col.lower() for word in ("measure", "data type", "unit"))
+            ]
+            measure_col = measure_cols[0] if measure_cols else None
+            direct_pct = False
+
+            if measure_col is not None:
+                measure_labels = cpi_df[measure_col].astype("string").fillna("")
+                pct_mask = measure_labels.str.contains(
+                    r"percentage change.*(year|corresponding)|year.on.year|annual.*change",
+                    case=False,
+                    regex=True,
+                )
+                index_mask = measure_labels.str.contains(
+                    r"index number|index,?\s*\(?2011|all groups index|cpi index",
+                    case=False,
+                    regex=True,
+                )
+
+                if pct_mask.any():
+                    cpi_df = cpi_df[pct_mask].copy()
+                    direct_pct = True
+                elif index_mask.any():
+                    cpi_df = cpi_df[index_mask].copy()
+
+            # Find a likely CPI group dimension from its label values.
+            category_col = None
+            category_candidates = [
+                col for col in label_cols
+                if col in cpi_df.columns and cpi_df[col].nunique(dropna=True) > 3
+            ]
+            preferred_words = ("index", "expenditure", "group", "cpi")
+            for col in category_candidates:
+                name = col.lower()
+                vals = cpi_df[col].dropna().astype(str).head(100).str.lower()
+                has_groups = vals.str.contains(
+                    r"housing|food|transport|education|health|recreation|clothing|alcohol|furnishings",
+                    regex=True,
+                ).any()
+                if has_groups and any(word in name for word in preferred_words):
+                    category_col = col
+                    break
+
+            if category_col is None:
+                for col in category_candidates:
+                    vals = cpi_df[col].dropna().astype(str).head(100).str.lower()
+                    if vals.str.contains(
+                        r"housing|food|transport|education|health|recreation|clothing|alcohol|furnishings",
+                        regex=True,
+                    ).any():
+                        category_col = col
+                        break
+
+            if category_col is not None and not cpi_df.empty:
+                cpi_df["_CPI_GROUP"] = cpi_df[category_col].astype("string")
+                cpi_df = cpi_df.dropna(subset=["_DATE", "_VALUE"])
+                cpi_df = cpi_df.sort_values(["_CPI_GROUP", "_DATE"])
+
+                if direct_pct:
+                    # Explicit ABS annual percentage-change series.
+                    latest_by_group = (
+                        cpi_df.groupby("_CPI_GROUP", dropna=True)
+                        .tail(1)
+                        .rename(columns={"_VALUE": "_CPI_MOVE"})
+                    )
+                else:
+                    # Calculate year-on-year change from index observations.
+                    cpi_frequency = infer_frequency(cpi_df[time_col])
+                    cpi_lag = {
+                        "Monthly": 12,
+                        "Quarterly": 4,
+                        "Annual": 1,
+                        "Weekly": 52,
+                        "Daily / other": 365,
+                        "Unknown": 1,
+                    }.get(cpi_frequency, 12)
+
+                    cpi_df["_CPI_MOVE"] = (
+                        cpi_df.groupby("_CPI_GROUP")["_VALUE"]
+                        .pct_change(periods=cpi_lag, fill_method=None) * 100
+                    )
+                    latest_by_group = (
+                        cpi_df.dropna(subset=["_CPI_MOVE"])
+                        .groupby("_CPI_GROUP", dropna=True)
+                        .tail(1)
+                    )
+
+                if not latest_by_group.empty:
+                    latest_period = latest_by_group["_DATE"].max()
+                    bar_df = latest_by_group[
+                        latest_by_group["_DATE"] == latest_period
+                    ].copy()
+
+                    # Exclude aggregate headline CPI from the category ranking
+                    # when recognisable in the labels.
+                    bar_df = bar_df[
+                        ~bar_df["_CPI_GROUP"].str.contains(
+                            r"all groups|headline", case=False, na=False
+                        )
+                    ]
+
+                    bar_df = bar_df.sort_values("_CPI_MOVE")
+                    if not bar_df.empty:
+                        bar_fig = px.bar(
+                            bar_df,
+                            x="_CPI_MOVE",
+                            y="_CPI_GROUP",
+                            orientation="h",
+                            labels={
+                                "_CPI_MOVE": "Annual change (%)",
+                                "_CPI_GROUP": "CPI group",
+                            },
+                            title=(
+                                "Annual CPI movement by group — "
+                                + latest_period.strftime("%b %Y")
+                            ),
+                            color="_CPI_MOVE",
+                            color_continuous_scale=["#c65d3a", "#e5e7eb", "#2878b5"],
+                            color_continuous_midpoint=0,
+                            template="plotly_white",
+                        )
+                        bar_fig.update_layout(
+                            showlegend=False,
+                            coloraxis_showscale=False,
+                            margin=dict(l=10, r=20, t=60, b=20),
+                            xaxis_title="Annual change (%)",
+                            yaxis_title="",
+                        )
+                        bar_fig.add_vline(x=0, line_width=1, line_color="gray")
+                        st.plotly_chart(
+                            bar_fig,
+                            use_container_width=True,
+                            key="cpi_movement_bar_chart",
+                        )
+                    else:
+                        st.info(
+                            "CPI data was found, but no category-level values "
+                            "were available to draw the bar chart for this period."
+                        )
+                else:
+                    st.info(
+                        "The CPI data did not contain enough historical observations "
+                        "to calculate annual movements. Try an earlier start year."
+                    )
+            else:
+                st.info(
+                    "Could not automatically identify the CPI group dimension in "
+                    "this ABS response. The existing CPI tables and trend chart remain available."
+                )
+
         st.markdown("### Latest available values")
 
         latest_table = (
@@ -600,56 +767,52 @@ with trends_tab:
     else:
         plot_df["_PLOT_VALUE"] = plot_df["_VALUE"]
 
-        plot_df = plot_df.dropna(subset=["_PLOT_VALUE"])
+    plot_df = plot_df.dropna(subset=["_PLOT_VALUE"])
 
-        # Keep full transformed data for accurate summary statistics.
-        stats_df = plot_df
+    # Keep full transformed data for accurate summary statistics.
+    stats_df = plot_df.copy()
 
-        # Limit chart rendering to the 20 largest series.
-        MAX_SERIES = 20
-        MAX_POINTS_PER_SERIES = 500
+    # Limit chart rendering to the 20 largest series.
+    MAX_SERIES = 20
+    MAX_POINTS_PER_SERIES = 500
 
-        series_sizes = (
-            plot_df.groupby("_SERIES")
-            .size()
-            .sort_values(ascending=False)
+    series_sizes = (
+        plot_df.groupby("_SERIES")
+        .size()
+        .sort_values(ascending=False)
+    )
+
+    if len(series_sizes) > MAX_SERIES:
+        keep_series = series_sizes.head(MAX_SERIES).index
+
+        plot_df = plot_df[
+            plot_df["_SERIES"].isin(keep_series)
+        ].copy()
+
+        st.warning(
+            f"Showing {MAX_SERIES} series with the most observations "
+            f"out of {len(series_sizes)} total series. "
+            "Apply dimension filters to explore other series."
         )
 
-        if len(series_sizes) > MAX_SERIES:
-            keep_series = series_sizes.head(MAX_SERIES).index
+    # Reduce plotted points while preserving time order and each series' last point.
+    sampled_groups = []
 
-            plot_df = plot_df[
-                plot_df["_SERIES"].isin(keep_series)
-            ].copy()
+    for _, group in plot_df.groupby("_SERIES", sort=False):
+        if len(group) > MAX_POINTS_PER_SERIES:
+            step = (
+                len(group) + MAX_POINTS_PER_SERIES - 1
+            ) // MAX_POINTS_PER_SERIES
 
-            st.warning(
-                f"Showing {MAX_SERIES} series with the most observations "
-                f"out of {len(series_sizes)} total series. "
-                "Apply dimension filters to explore other series."
-            )
+            group = pd.concat([
+                group.iloc[::step],
+                group.iloc[[-1]],
+            ]).drop_duplicates()
 
-        # Reduce plotted points while preserving the time order
-        # and the final observation of each series.
-        sampled_groups = []
+        sampled_groups.append(group)
 
-        for _, group in plot_df.groupby("_SERIES", sort=False):
-            if len(group) > MAX_POINTS_PER_SERIES:
-                step = (
-                    len(group) + MAX_POINTS_PER_SERIES - 1
-                ) // MAX_POINTS_PER_SERIES
-
-                group = pd.concat([
-                    group.iloc[::step],
-                    group.iloc[[-1]],
-                ]).drop_duplicates()
-
-            sampled_groups.append(group)
-
-        if sampled_groups:
-            plot_df = pd.concat(
-                sampled_groups,
-                ignore_index=True,
-            )
+    if sampled_groups:
+        plot_df = pd.concat(sampled_groups, ignore_index=True)
 
     y_titles = {
         "Original values": "ABS-reported value",
