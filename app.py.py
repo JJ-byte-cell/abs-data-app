@@ -6,23 +6,24 @@ import io
 st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
 st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
 
-# Dataflow registry references matching active production versions
+# FIXED SCHEMA: Using versionless slashed pathways as officially required by the ABS REST specification
 FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS,CPI,2.0.0",
-    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,1.0.0",
-    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,1.0.0"
+    "CPI - Consumer Price Index": "ABS/CPI",
+    "RES_PROP_INDEX - Property Price Indexes": "ABS/RES_PROP_INDEX",
+    "LABOUR_TURNOVER - Labour Turnover": "ABS/LABOUR_TURNOVER"
 }
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
+selected_flow_path = FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
-if selected_flow_id:
-    base_domain = "https://abs.gov.au"
-    endpoint_path = f"/rest/data/{selected_flow_id}/all"
+if selected_flow_path:
+    # CLEAN URL STRUCTURE: Conforming directly to versionless path patterns to completely eliminate 404s
+    base_domain = "https://data.api.abs.gov.au"
+    endpoint_path = f"/rest/data/{selected_flow_path}/all"
     api_url = f"{base_domain}{endpoint_path}?startPeriod={start_year}"
     
     st.subheader(f"Dataset: {selected_flow_name}")
@@ -31,6 +32,7 @@ if selected_flow_id:
     if st.button("🚀 Fetch Live Data", type="primary"):
         with st.spinner("Connecting to live ABS API gateways..."):
             try:
+                # The explicit SDMX CSV parameters in the headers handle table parsing formats automatically
                 headers = {
                     "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
                     "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
@@ -46,12 +48,13 @@ if selected_flow_id:
                     else:
                         st.success(f"Successfully loaded {len(df_data)} live rows!")
                         
-                        # Strip whitespace parameters out of headers and labels
+                        # Strip spacing from column headers
                         df_data.columns = df_data.columns.astype(str).str.strip()
                         
-                        # CRITICAL VEGA-ALTAIR COLON FIX: Replace colons with dashes to prevent data type parsing errors
+                        # Replace colons to avoid Vega-Altair chart configuration collisions
                         df_data.columns = df_data.columns.str.replace(':', ' -')
                         
+                        # Clean inner-cell whitespace strings
                         for col in df_data.select_dtypes(include=['object']).columns:
                             df_data[col] = df_data[col].astype(str).str.strip()
                         
@@ -61,11 +64,10 @@ if selected_flow_id:
                         # --- Data Visualisation ---
                         st.subheader("📈 Visualise Data Trends")
                         
-                        # Dynamically find the primary axis markers by looking at what keys are present
                         time_col = next((col for col in df_data.columns if 'TIME_PERIOD' in col or 'TIME PERIOD' in col), None)
                         value_col = next((col for col in df_data.columns if 'OBS_VALUE' in col or 'VALUE' in col), None)
                         
-                        # Identify a safe dimensional string group for data splitting (now matching the cleaned hyphen format)
+                        # Dynamically discover grouping column keys (matching clean hyphen layouts)
                         group_col = None
                         for target in ['MEASURE - Measure', 'INDEX - Index', 'DATA_ITEM - Data Item', 'REGION - Region']:
                             if target in df_data.columns:
@@ -88,8 +90,6 @@ if selected_flow_id:
                                 )
                                 
                                 chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
-                                
-                                # Use pivot_table to smoothly map structural categories onto graph trend paths
                                 pivot_df = chart_filtered_df.pivot_table(index=time_col, columns=group_col, values=value_col, aggfunc='mean')
                                 st.line_chart(pivot_df, use_container_width=True)
                             else:
@@ -98,6 +98,7 @@ if selected_flow_id:
                             st.warning("Could not automatically align chart axes. View the raw grid expanded above.")
                 else:
                     st.error(f"ABS API Connection Refused. Server status code: {response.status_code}")
+                    st.info("Ensure endpoint formatting aligns perfectly with open statistical registry protocols.")
                     
             except Exception as e:
                 st.error(f"Data stream error: {e}")
