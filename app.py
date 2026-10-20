@@ -67,13 +67,15 @@ def create_session():
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+
 def fetch_abs_data(flow, start_year, end_year):
     url = f"{BASE_URL}/data/{flow}/all"
 
     params = {
         "startPeriod": str(start_year),
         "endPeriod": str(end_year),
-        "dimension_at_observation": "AllDimensions",
+        "dimensionAtObservation": "AllDimensions",
+        "format": "csv",
     }
 
     response = create_session().get(
@@ -83,7 +85,11 @@ def fetch_abs_data(flow, start_year, end_year):
         timeout=(10, 60),
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise ValueError(
+            f"ABS API returned HTTP {response.status_code}: "
+            f"{response.text[:1000]}"
+        )
 
     if not response.text.strip():
         raise ValueError("The ABS API returned an empty response.")
@@ -109,6 +115,7 @@ def fetch_abs_data(flow, start_year, end_year):
     ]
 
     return df, response.url
+
 
 
 # =========================================================
