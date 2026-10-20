@@ -4,6 +4,7 @@ import time
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from io import BytesIO
 
 import pandas as pd
 import plotly.express as px
@@ -816,9 +817,22 @@ if active_view == VIEWS[1]:
                 st.info("Not enough history to calculate annual inflation. Expand the start year.")
             else:
                 last_period = available["_DATE"].max()
+                st.markdown("#### Historical CPI analysis")
+                history_years = st.select_slider(
+                    "History shown in CPI charts",
+                    options=[2, 3, 5, 10, 15, 20, "All available"],
+                    value=5,
+                    key="cpi_history_years",
+                )
+                if history_years == "All available":
+                    history = available
+                else:
+                    cutoff = last_period - pd.DateOffset(years=history_years)
+                    history = available.loc[available["_DATE"] >= cutoff].copy()
+                st.caption(f"Showing {history['_DATE'].min():%b %Y} to {last_period:%b %Y}. Historical coverage depends on the API request's start year in the sidebar.")
                 latest = available.loc[available["_DATE"] == last_period].copy()
                 groups = latest[latest["Group"].isin(CPI_GROUPS)].sort_values("Annual %")
-                headline = available[available["Group"].isin(["All groups CPI", "All groups"])].sort_values("_DATE")
+                headline = history[history["Group"].isin(["All groups CPI", "All groups"])].sort_values("_DATE")
                 if not headline.empty:
                     recent = headline.iloc[-1]
                     k1, k2, k3 = st.columns(3)
@@ -850,7 +864,7 @@ if active_view == VIEWS[1]:
                     st.info("No expenditure groups share the latest available period.")
                 st.markdown("#### Inflation momentum")
                 if not headline.empty:
-                    momentum = headline.tail(24)
+                    momentum = headline
                     momentum_fig = go.Figure()
                     momentum_fig.add_trace(go.Bar(x=momentum["_DATE"], y=momentum["Period %"], name="Period-on-period %"))
                     momentum_fig.add_trace(go.Scatter(x=momentum["_DATE"], y=momentum["Annual %"],
@@ -861,9 +875,9 @@ if active_view == VIEWS[1]:
                                                legend=dict(orientation="h", y=1.15), margin=dict(l=20,r=20,t=55,b=20))
                     st.plotly_chart(momentum_fig, use_container_width=True, key="cpi_momentum")
                 st.markdown("#### Inflation persistence heatmap")
-                heat = available[available["Group"].isin(CPI_GROUPS)].copy()
+                heat = history[history["Group"].isin(CPI_GROUPS)].copy()
                 if not heat.empty:
-                    periods = sorted(heat["_DATE"].unique())[-24:]
+                    periods = sorted(heat["_DATE"].unique())
                     heat = heat[heat["_DATE"].isin(periods)]
                     heat["Period"] = heat["_DATE"].dt.strftime("%b %y")
                     matrix = heat.pivot(index="Group", columns="Period", values="Annual %")
@@ -873,7 +887,151 @@ if active_view == VIEWS[1]:
                                      color_continuous_midpoint=0, labels=dict(color="Annual %"))
                     hfig.update_layout(template="plotly_white", height=440, margin=dict(l=20,r=20,t=20,b=20))
                     st.plotly_chart(hfig, use_container_width=True, key="cpi_heatmap")
+                st.markdown("#### Expenditure group trends")
+                history_groups = history[history["Group"].isin(CPI_GROUPS)].copy()
+                if not history_groups.empty:
+                    group_options = sorted(history_groups["Group"].unique().tolist())
+                    default_groups = [g for g in ["Housing", "Food and non-alcoholic beverages", "Transport"] if g in group_options]
+                    chosen_groups = st.multiselect("Compare expenditure groups", group_options, default=default_groups, key="cpi_group_trend_selection")
+                    if chosen_groups:
+                        trend_data = history_groups[history_groups["Group"].isin(chosen_groups)]
+                        group_fig = px.line(trend_data, x="_DATE", y="Annual %", color="Group", title="Annual inflation by expenditure group over time", labels={"_DATE":"", "Annual %":"Annual change (%)"}, template="plotly_white")
+                        group_fig.update_layout(height=420, hovermode="x unified", margin=dict(l=20,r=20,t=55,b=20))
+                        group_fig.add_hline(y=0, line_dash="dot", line_color="gray")
+                        st.plotly_chart(group_fig, use_container_width=True, key="cpi_group_history")
                 st.caption("Source: ABS Data API. CPI index levels converted to annual changes using matched calendar periods. Compare ABS published rates before making investment decisions.")
+
+                st.divider()
+                st.markdown("### Investment research — additional CPI insights")
+                st.caption("Historical series are matched by date. Optional ABS/RBA data uploads unlock indicators that are not included in the selected CPI API slice.")
+                research_tabs = st.tabs(["Inflation breadth", "Housing components", "Underlying inflation", "CPI contributions", "Wages & cash rate"])
+                with research_tabs[0]:
+                    broad = history[history["Group"].isin(CPI_GROUPS)].dropna(subset=["Annual %"])
+                    if not broad.empty:
+                        breadth = broad.groupby("_DATE").agg(
+                            groups=("Group", "nunique"),
+                            above_3=("Annual %", lambda x: int((x > 3).sum())),
+                            above_2=("Annual %", lambda x: int((x > 2).sum())),
+                            median_inflation=("Annual %", "median"),
+                        ).reset_index()
+                        breadth["Above 3% share"] = 100 * breadth["above_3"] / breadth["groups"]
+                        breadth["Above 2% share"] = 100 * breadth["above_2"] / breadth["groups"]
+                        fig = px.line(breadth, x="_DATE", y=["Above 3% share", "Above 2% share"],
+                                      title="Share of CPI expenditure groups above inflation thresholds",
+                                      labels={"_DATE": "", "value": "Share of groups (%)", "variable": "Threshold"},
+                                      template="plotly_white")
+                        fig.update_yaxes(range=[0, 100]); fig.update_layout(hovermode="x unified")
+                        st.plotly_chart(fig, use_container_width=True, key="breadth_plot")
+                        st.caption("Equal-weighted group breadth, not expenditure-weighted inflation. A group is counted only when its annual rate is available.")
+                        st.dataframe(breadth.tail(12), hide_index=True, use_container_width=True)
+                    else:
+                        st.info("No expenditure-group inflation rates are available for breadth analysis.")
+                with research_tabs[1]:
+                    st.markdown("#### Housing inflation")
+                    housing = history[history["Group"].str.contains("Housing|Rent|dwelling", case=False, na=False)]
+                    if not housing.empty:
+                        st.plotly_chart(px.line(housing, x="_DATE", y="Annual %", color="Group",
+                                                title="Housing CPI annual inflation", template="plotly_white"),
+                                        use_container_width=True, key="housing_plot")
+                    st.caption("The targeted top-level CPI query may only contain Housing, not rents and new-dwelling subgroups. Upload a dated ABS subgroup export to inspect components.")
+                    housing_upload = st.file_uploader("Optional ABS housing subgroup CSV (Date, Component, Annual %)", type="csv", key="housing_upload")
+                    if housing_upload is not None:
+                        try:
+                            h = pd.read_csv(housing_upload)
+                            if not {"Date", "Component", "Annual %"}.issubset(h.columns):
+                                st.warning("CSV must contain Date, Component, Annual % columns.")
+                            else:
+                                h["Date"] = pd.to_datetime(h["Date"], errors="coerce")
+                                h["Annual %"] = pd.to_numeric(h["Annual %"], errors="coerce")
+                                h = h.dropna(subset=["Date", "Annual %", "Component"])
+                                st.plotly_chart(px.line(h, x="Date", y="Annual %", color="Component",
+                                                        title="Housing CPI subgroups — uploaded ABS data", template="plotly_white"),
+                                                use_container_width=True, key="housing_subgroups")
+                        except Exception as exc:
+                            st.warning(f"Could not read housing CSV: {exc}")
+                with research_tabs[2]:
+                    st.markdown("#### Headline vs trimmed-mean inflation")
+                    st.caption("Trimmed mean is a separate underlying-inflation measure. It must not be inferred from a simple median or average of expenditure groups.")
+                    underlying_upload = st.file_uploader("ABS trimmed-mean CSV (Date, Trimmed mean annual %)", type="csv", key="trimmed_upload")
+                    if underlying_upload is not None:
+                        try:
+                            u = pd.read_csv(underlying_upload)
+                            if not {"Date", "Trimmed mean annual %"}.issubset(u.columns):
+                                st.warning("CSV must contain Date and Trimmed mean annual % columns.")
+                            else:
+                                u["Date"] = pd.to_datetime(u["Date"], errors="coerce")
+                                u["Trimmed mean annual %"] = pd.to_numeric(u["Trimmed mean annual %"], errors="coerce")
+                                u = u.dropna(subset=["Date", "Trimmed mean annual %"])
+                                base = headline[["_DATE", "Annual %"]].rename(columns={"_DATE": "Date", "Annual %": "Headline annual %"})
+                                compare = pd.merge(base, u[["Date", "Trimmed mean annual %"]], on="Date", how="inner")
+                                if compare.empty:
+                                    st.warning("No matching CPI dates. Use dates aligned to the CPI observation periods and frequency.")
+                                else:
+                                    st.plotly_chart(px.line(compare, x="Date", y=["Headline annual %", "Trimmed mean annual %"],
+                                                            title="Headline vs trimmed-mean CPI (matched periods)", template="plotly_white"),
+                                                    use_container_width=True, key="trimmed_chart")
+                        except Exception as exc:
+                            st.warning(f"Could not read trimmed-mean CSV: {exc}")
+                    else:
+                        st.info("Upload the official ABS trimmed-mean time series to enable a valid comparison.")
+                with research_tabs[3]:
+                    st.markdown("#### Contributions to headline inflation")
+                    st.caption("Annual group inflation rates are NOT contributions. The chart below requires externally supplied ABS-compatible contribution values in percentage points.")
+                    contrib_upload = st.file_uploader("Contribution CSV (Date, Group, Contribution pp)", type="csv", key="contrib_upload")
+                    if contrib_upload is not None:
+                        try:
+                            co = pd.read_csv(contrib_upload)
+                            if not {"Date", "Group", "Contribution pp"}.issubset(co.columns):
+                                st.warning("CSV must contain Date, Group, Contribution pp columns.")
+                            else:
+                                co["Date"] = pd.to_datetime(co["Date"], errors="coerce")
+                                co["Contribution pp"] = pd.to_numeric(co["Contribution pp"], errors="coerce")
+                                co = co.dropna(subset=["Date", "Group", "Contribution pp"])
+                                co = co[co["Date"] >= history["_DATE"].min()]
+                                if not co.empty:
+                                    fig = px.bar(co, x="Date", y="Contribution pp", color="Group",
+                                                 title="CPI contributions (percentage points) — supplied series",
+                                                 template="plotly_white")
+                                    fig.update_layout(barmode="relative", hovermode="x unified")
+                                    st.plotly_chart(fig, use_container_width=True, key="contribution_chart")
+                                    st.caption("Validate that contribution methodology and group coverage match the ABS headline CPI definition.")
+                        except Exception as exc:
+                            st.warning(f"Could not read contribution CSV: {exc}")
+                    else:
+                        st.info("Upload published contribution data. The app will not estimate contributions from unweighted inflation rates.")
+                with research_tabs[4]:
+                    st.markdown("#### Inflation, wages and monetary policy")
+                    st.caption("Supply official wage-growth and RBA cash-rate series. Charts use actual observation dates and do not interpolate missing periods.")
+                    macro_upload = st.file_uploader("Macro CSV (Date, Wages annual %, Cash rate %)", type="csv", key="macro_upload")
+                    if macro_upload is not None:
+                        try:
+                            m = pd.read_csv(macro_upload)
+                            if "Date" not in m or not any(c in m for c in ["Wages annual %", "Cash rate %"]):
+                                st.warning("CSV requires Date and at least one of Wages annual % or Cash rate %.")
+                            else:
+                                m["Date"] = pd.to_datetime(m["Date"], errors="coerce")
+                                cols = [c for c in ["Wages annual %", "Cash rate %"] if c in m]
+                                for c in cols: m[c] = pd.to_numeric(m[c], errors="coerce")
+                                m = m.dropna(subset=["Date"])
+                                base = headline[["_DATE", "Annual %"]].rename(columns={"_DATE": "Date", "Annual %": "CPI annual %"})
+                                aligned = pd.merge(base, m[["Date"] + cols], on="Date", how="inner")
+                                if aligned.empty:
+                                    st.warning("No exact matching dates. Align the supplied dates with CPI release observation periods.")
+                                else:
+                                    st.plotly_chart(px.line(aligned, x="Date", y=["CPI annual %"] + cols,
+                                                            title="CPI vs wages growth and cash rate — matched dates", template="plotly_white"),
+                                                    use_container_width=True, key="macro_comparison")
+                                    if "Wages annual %" in cols:
+                                        aligned["Wages less CPI (pp)"] = aligned["Wages annual %"] - aligned["CPI annual %"]
+                                        st.plotly_chart(px.bar(aligned, x="Date", y="Wages less CPI (pp)",
+                                                               title="Nominal wage growth less CPI inflation (percentage points)", template="plotly_white"),
+                                                        use_container_width=True, key="real_wages_proxy")
+                                        st.caption("Wage growth minus CPI is a purchasing-power indicator, not an exact real-wage growth calculation.")
+                        except Exception as exc:
+                            st.warning(f"Could not read macro CSV: {exc}")
+                    else:
+                        st.info("Upload ABS Wage Price Index and RBA cash-rate observations to unlock comparisons.")
+
 
 
 # =========================================================
