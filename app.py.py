@@ -21,15 +21,19 @@ st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
 
 if selected_flow_ref:
-    # Official endpoint route mapping to the correct API server domain
-    api_url = f"https://abs.gov.au{selected_flow_ref}/all?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
+    # CRITICAL URL PATCH: Strict functional separation of host domain strings and dataflow endpoints
+    base_domain = "https://abs.gov.au"
+    endpoint_path = f"/rest/data/{selected_flow_ref}/all"
+    query_params = f"?dimensionAtObservation=AllDimensions&startPeriod={start_year}"
+    api_url = f"{base_domain}{endpoint_path}{query_params}"
     
     st.subheader(f"Dataset: {selected_flow_name}")
+    st.markdown(f"**Target API Endpath:** `{api_url}`")
     
     if st.button("🚀 Fetch Live Data", type="primary"):
         with st.spinner("Connecting to live ABS API gateways..."):
             try:
-                # The ABS API strictly requires the explicit SDMX CSV application header to allow external scripts through
+                # Direct structural data payload download via standard SDMX data-frame conversions
                 headers = {
                     "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
                     "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
@@ -38,7 +42,6 @@ if selected_flow_ref:
                 response = requests.get(api_url, headers=headers, timeout=20)
                 
                 if response.status_code == 200:
-                    # Convert response bytes directly into a pandas dataframe
                     df_data = pd.read_csv(io.StringIO(response.text))
                     
                     if df_data.empty:
@@ -46,10 +49,10 @@ if selected_flow_ref:
                     else:
                         st.success(f"Successfully loaded {len(df_data)} live rows!")
                         
-                        # CRITICAL FIX: Aggressively strip whitespaces from column names to fix the Time Period error
+                        # Strip accidental leading or trailing blank spaces from headers
                         df_data.columns = df_data.columns.str.strip()
                         
-                        # If a column specifically named "Time Period" exists, rename it cleanly to get rid of plotting confusion
+                        # Map messy "Time Period" keys out of Vega-Altair plotting configurations
                         if "Time Period" in df_data.columns:
                             df_data = df_data.rename(columns={"Time Period": "TIME_PERIOD"})
                         
@@ -59,7 +62,6 @@ if selected_flow_ref:
                         # --- Data Visualisation ---
                         st.subheader("📈 Visualise Data Trends")
                         
-                        # Find the appropriate data structure columns based on standard ABS labels
                         time_col = next((col for col in df_data.columns if 'TIME' in col.upper() or 'PERIOD' in col.upper()), None)
                         value_col = next((col for col in df_data.columns if 'VALUE' in col.upper() or 'OBS_VALUE' in col.upper()), None)
                         group_col = next((col for col in df_data.columns if 'MEASURE' in col.upper() or 'INDEX' in col.upper() or 'DATA_ITEM' in col.upper()), None)
