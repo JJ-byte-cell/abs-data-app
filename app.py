@@ -32,7 +32,7 @@ target_flow_id = AVAILABLE_DATAFLOWS[selected_name]
 st.sidebar.header("⏳ 2. Primary Date Constraints")
 start_year = st.sidebar.number_input("Start Period (Year):", min_value=2000, max_value=2026, value=2018)
 
-# 3. Session State Caching Layers
+# 3. Session State Caching Layers (Prevents unwanted auto-refresh loops)
 if "master_data_payload" not in st.session_state:
     st.session_state.master_data_payload = None
 if "active_dataflow_id" not in st.session_state:
@@ -40,8 +40,8 @@ if "active_dataflow_id" not in st.session_state:
 if "active_filter_year" not in st.session_state:
     st.session_state.active_filter_year = None
 
-# FIXED URL PATHWAY: Adding 'dimensionAtObservation=AllDimensions' as strictly dictated by ABS CSV specifications
-base_gateway = "https://data.api.abs.gov.au/rest/data"
+# FIXED URL PATHWAY: Appending dimensionAtObservation parameter as dictated by ABS CSV specifications
+base_gateway = "https://abs.gov.au"
 query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}&dimensionAtObservation=AllDimensions"
 
 # If sidebar parameters change, invalidate the memory cache to force a clean fetch
@@ -76,7 +76,7 @@ if st.button("🚀 Ingest Live Data Stream", type="primary"):
                     # Remove trailing whitespaces from headers introduced by transmission padding
                     df_raw.columns = df_raw.columns.astype(str).str.strip()
                     
-                    # Vega-Altair chart engine compatibility translation
+                    # Vega-Altair chart engine compatibility translation (Eliminates the type syntax errors)
                     df_raw.columns = df_raw.columns.str.replace(':', ' -')
                     
                     # Clean inner-cell whitespace strings across all descriptive categorical objects
@@ -138,7 +138,7 @@ if st.session_state.master_data_payload is not None:
             st.markdown(f"**Filter Dimension:** `{segmentation_target}`")
             available_categories = working_df[segmentation_target].unique().tolist() if segmentation_target else []
             
-            # Interactive Multi-Select Filter Control
+            # Interactive Multi-Select Filter Control (Runs instantly via local memory without page-reload loops)
             target_selection = st.multiselect(
                 "Isolate Specific Economic Subgroups:", 
                 options=available_categories, 
@@ -172,7 +172,7 @@ if st.session_state.master_data_payload is not None:
                     values=value_index, 
                     aggfunc='mean'
                 )
-                # Strict Chronological Sorting Layer to erase zig-zag visual tracking flaws
+                # Strict Chronological Sorting Layer to erase zig-zag visual patchwork flaws
                 chart_pivot = chart_pivot.sort_index()
                 st.line_chart(chart_pivot, use_container_width=True)
             else:
@@ -192,8 +192,3 @@ if st.session_state.master_data_payload is not None:
         
         st.download_button(
             label="💾 Export Active Workspace Spreadsheet (CSV)",
-            data=csv_io_stream.getvalue(),
-            file_name="abs_clean_extract.csv",
-            mime="text/csv"
-        )
-    else:
