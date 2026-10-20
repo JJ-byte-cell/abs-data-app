@@ -41,7 +41,7 @@ if "active_filter_year" not in st.session_state:
     st.session_state.active_filter_year = None
 
 # FIXED URL PATHWAY: Adding 'dimensionAtObservation=AllDimensions' as strictly dictated by ABS CSV specifications
-base_gateway = "https://abs.gov.au"
+base_gateway = "https://data.api.abs.gov.au/rest/data"
 query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}&dimensionAtObservation=AllDimensions"
 
 # If sidebar parameters change, invalidate the memory cache to force a clean fetch
