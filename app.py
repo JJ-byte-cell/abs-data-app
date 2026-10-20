@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -20,6 +21,11 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""<style>
+.block-container {padding-top: 1.5rem; max-width: 1500px;}
+[data-testid="stMetric"] {background: rgba(128,128,128,.07); padding: 14px 18px; border-radius: 12px; border: 1px solid rgba(128,128,128,.12);}
+[data-testid="stMetricLabel"] {font-weight: 600;}
+</style>""", unsafe_allow_html=True)
 st.title("🇦🇺 Australian Macroeconomic Tracker")
 st.caption("Interactive economic dashboard powered by ABS data")
 
@@ -410,9 +416,10 @@ else:
 # 9. DASHBOARD TABS
 # =========================================================
 
-overview_tab, trends_tab, data_tab, quality_tab = st.tabs(
+overview_tab, cpi_tab, trends_tab, data_tab, quality_tab = st.tabs(
     [
         "📊 Overview",
+        "📉 CPI Deep Dive",
         "📈 Trends & Analysis",
         "🗃️ Data Explorer",
         "🩺 Data Quality",
@@ -502,172 +509,7 @@ with overview_tab:
                 "units and must not be compared as raw levels."
             )
 
-        # ABS-style visual summary of the latest CPI movements.
-        # This is shown only for the CPI dataset and only when the returned
-        # dimensions contain a recognisable expenditure-group dimension.
-        if dataset_name == "Consumer Price Index (CPI)":
-            st.markdown("### What is moving CPI?")
-            st.caption(
-                "Annual percentage change by CPI group, using the latest "
-                "available observations. This shows each group's inflation "
-                "rate, not its weighted contribution to headline CPI."
-            )
-
-            cpi_df = df.copy()
-
-            # Prefer a measure that represents index numbers. If the API
-            # returns explicit annual percentage-change observations instead,
-            # use those directly.
-            measure_cols = [
-                col for col in label_cols
-                if any(word in col.lower() for word in ("measure", "data type", "unit"))
-            ]
-            measure_col = measure_cols[0] if measure_cols else None
-            direct_pct = False
-
-            if measure_col is not None:
-                measure_labels = cpi_df[measure_col].astype("string").fillna("")
-                pct_mask = measure_labels.str.contains(
-                    r"percentage change.*(year|corresponding)|year.on.year|annual.*change",
-                    case=False,
-                    regex=True,
-                )
-                index_mask = measure_labels.str.contains(
-                    r"index number|index,?\s*\(?2011|all groups index|cpi index",
-                    case=False,
-                    regex=True,
-                )
-
-                if pct_mask.any():
-                    cpi_df = cpi_df[pct_mask].copy()
-                    direct_pct = True
-                elif index_mask.any():
-                    cpi_df = cpi_df[index_mask].copy()
-
-            # Find a likely CPI group dimension from its label values.
-            category_col = None
-            category_candidates = [
-                col for col in label_cols
-                if col in cpi_df.columns and cpi_df[col].nunique(dropna=True) > 3
-            ]
-            preferred_words = ("index", "expenditure", "group", "cpi")
-            for col in category_candidates:
-                name = col.lower()
-                vals = cpi_df[col].dropna().astype(str).head(100).str.lower()
-                has_groups = vals.str.contains(
-                    r"housing|food|transport|education|health|recreation|clothing|alcohol|furnishings",
-                    regex=True,
-                ).any()
-                if has_groups and any(word in name for word in preferred_words):
-                    category_col = col
-                    break
-
-            if category_col is None:
-                for col in category_candidates:
-                    vals = cpi_df[col].dropna().astype(str).head(100).str.lower()
-                    if vals.str.contains(
-                        r"housing|food|transport|education|health|recreation|clothing|alcohol|furnishings",
-                        regex=True,
-                    ).any():
-                        category_col = col
-                        break
-
-            if category_col is not None and not cpi_df.empty:
-                cpi_df["_CPI_GROUP"] = cpi_df[category_col].astype("string")
-                cpi_df = cpi_df.dropna(subset=["_DATE", "_VALUE"])
-                cpi_df = cpi_df.sort_values(["_CPI_GROUP", "_DATE"])
-
-                if direct_pct:
-                    # Explicit ABS annual percentage-change series.
-                    latest_by_group = (
-                        cpi_df.groupby("_CPI_GROUP", dropna=True)
-                        .tail(1)
-                        .rename(columns={"_VALUE": "_CPI_MOVE"})
-                    )
-                else:
-                    # Calculate year-on-year change from index observations.
-                    cpi_frequency = infer_frequency(cpi_df[time_col])
-                    cpi_lag = {
-                        "Monthly": 12,
-                        "Quarterly": 4,
-                        "Annual": 1,
-                        "Weekly": 52,
-                        "Daily / other": 365,
-                        "Unknown": 1,
-                    }.get(cpi_frequency, 12)
-
-                    cpi_df["_CPI_MOVE"] = (
-                        cpi_df.groupby("_CPI_GROUP")["_VALUE"]
-                        .pct_change(periods=cpi_lag, fill_method=None) * 100
-                    )
-                    latest_by_group = (
-                        cpi_df.dropna(subset=["_CPI_MOVE"])
-                        .groupby("_CPI_GROUP", dropna=True)
-                        .tail(1)
-                    )
-
-                if not latest_by_group.empty:
-                    latest_period = latest_by_group["_DATE"].max()
-                    bar_df = latest_by_group[
-                        latest_by_group["_DATE"] == latest_period
-                    ].copy()
-
-                    # Exclude aggregate headline CPI from the category ranking
-                    # when recognisable in the labels.
-                    bar_df = bar_df[
-                        ~bar_df["_CPI_GROUP"].str.contains(
-                            r"all groups|headline", case=False, na=False
-                        )
-                    ]
-
-                    bar_df = bar_df.sort_values("_CPI_MOVE")
-                    if not bar_df.empty:
-                        bar_fig = px.bar(
-                            bar_df,
-                            x="_CPI_MOVE",
-                            y="_CPI_GROUP",
-                            orientation="h",
-                            labels={
-                                "_CPI_MOVE": "Annual change (%)",
-                                "_CPI_GROUP": "CPI group",
-                            },
-                            title=(
-                                "Annual CPI movement by group — "
-                                + latest_period.strftime("%b %Y")
-                            ),
-                            color="_CPI_MOVE",
-                            color_continuous_scale=["#c65d3a", "#e5e7eb", "#2878b5"],
-                            color_continuous_midpoint=0,
-                            template="plotly_white",
-                        )
-                        bar_fig.update_layout(
-                            showlegend=False,
-                            coloraxis_showscale=False,
-                            margin=dict(l=10, r=20, t=60, b=20),
-                            xaxis_title="Annual change (%)",
-                            yaxis_title="",
-                        )
-                        bar_fig.add_vline(x=0, line_width=1, line_color="gray")
-                        st.plotly_chart(
-                            bar_fig,
-                            use_container_width=True,
-                            key="cpi_movement_bar_chart",
-                        )
-                    else:
-                        st.info(
-                            "CPI data was found, but no category-level values "
-                            "were available to draw the bar chart for this period."
-                        )
-                else:
-                    st.info(
-                        "The CPI data did not contain enough historical observations "
-                        "to calculate annual movements. Try an earlier start year."
-                    )
-            else:
-                st.info(
-                    "Could not automatically identify the CPI group dimension in "
-                    "this ABS response. The existing CPI tables and trend chart remain available."
-                )
+        # CPI visuals are rendered in their own tab to avoid repeated work.
 
         st.markdown("### Latest available values")
 
@@ -693,6 +535,169 @@ with overview_tab:
             hide_index=True,
             use_container_width=True,
         )
+
+
+# =========================================================
+# 10B. CPI DEEP DIVE — MATCHED SERIES ONLY
+# =========================================================
+
+CPI_GROUPS = {
+    "Food and non-alcoholic beverages", "Alcohol and tobacco",
+    "Clothing and footwear", "Housing", "Furnishings, household equipment and services",
+    "Health", "Transport", "Communication", "Recreation and culture",
+    "Education", "Insurance and financial services",
+}
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def prepare_cpi_visuals(source, time_column, labels):
+    """Select a comparable CPI index family, never aggregate mixed series."""
+    data = source.dropna(subset=["_DATE", "_VALUE"]).copy()
+    if data.empty:
+        return pd.DataFrame(), "No numeric CPI observations"
+
+    # Find the dimension that contains ABS expenditure groups.
+    group_col = None
+    for col in labels:
+        if col not in data:
+            continue
+        values = data[col].dropna().astype(str).str.strip()
+        if len(set(values.unique()) & CPI_GROUPS) >= 5:
+            group_col = col
+            break
+    if group_col is None:
+        return pd.DataFrame(), "Could not identify an ABS expenditure-group dimension"
+
+    # Use an index-number measure, not an existing percentage-change series.
+    measure_cols = [c for c in labels if c != group_col and
+                    any(w in c.lower() for w in ("measure", "data type", "unit", "series type"))]
+    for col in measure_cols:
+        vals = data[col].astype(str)
+        index_mask = vals.str.contains(r"index number|index numbers|index,?\s*\(?20", case=False, regex=True, na=False)
+        if index_mask.any():
+            data = data.loc[index_mask].copy()
+            break
+    # Avoid mixing quarterly and monthly observations.
+    periods = data[time_column].astype(str)
+    monthly = periods.str.fullmatch(r"\d{4}-\d{2}")
+    quarterly = periods.str.fullmatch(r"\d{4}-Q[1-4]")
+    if monthly.any():
+        data = data.loc[monthly].copy()
+        lag = 12
+        frequency = "Monthly"
+    elif quarterly.any():
+        data = data.loc[quarterly].copy()
+        lag = 4
+        frequency = "Quarterly"
+    else:
+        return pd.DataFrame(), "No monthly or quarterly CPI series detected"
+
+    # Select a single coherent slice across all other SDMX dimensions.
+    # Prefer Australia, original (not seasonally adjusted) and index number.
+    other_cols = [c for c in labels if c != group_col and c in data]
+    for col in other_cols:
+        choices = data[col].dropna().astype(str).unique().tolist()
+        if len(choices) <= 1:
+            continue
+        preferences = [r"^Australia$", r"^Original$", r"^Index number", r"^Index Numbers"]
+        selected = next((v for pat in preferences for v in choices if re.search(pat, v, re.I)), None)
+        if selected is None:
+            # Select the most common slice rather than mixing incompatible series.
+            selected = data[col].astype(str).value_counts().index[0]
+        data = data.loc[data[col].astype(str) == selected].copy()
+
+    data["Group"] = data[group_col].astype(str).str.strip()
+    data = data.loc[data["Group"].isin(CPI_GROUPS | {"All groups CPI", "All groups"})].copy()
+    if data.empty:
+        return pd.DataFrame(), "No comparable CPI expenditure groups found"
+    # Require unique observation per group and date: duplicates mean ambiguity.
+    if data.duplicated(["Group", "_DATE"]).any():
+        return pd.DataFrame(), "Multiple CPI series remain per group/date; select a single measure and geography"
+    data = data.sort_values(["Group", "_DATE"])
+    # Match exact calendar periods to avoid incorrect shifts if a month is missing.
+    data["_PERIOD"] = data["_DATE"].dt.to_period("M" if lag == 12 else "Q")
+    data["_PREV_PERIOD"] = data["_PERIOD"] - lag
+    previous = data[["Group", "_PERIOD", "_VALUE"]].rename(columns={"_PERIOD": "_PREV_PERIOD", "_VALUE": "_YEAR_AGO"})
+    data = data.merge(previous, on=["Group", "_PREV_PERIOD"], how="left", validate="one_to_one")
+    data["Annual %"] = (data["_VALUE"] / data["_YEAR_AGO"] - 1) * 100
+    data["Period %"] = data.groupby("Group")["_VALUE"].pct_change(fill_method=None) * 100
+    data.loc[data["_YEAR_AGO"] <= 0, "Annual %"] = float("nan")
+    data.attrs["frequency"] = frequency
+    return data, ""
+
+with cpi_tab:
+    if dataset_name != "Consumer Price Index (CPI)":
+        st.info("Choose Consumer Price Index (CPI) in the sidebar to see the CPI analysis.")
+    else:
+        st.subheader("Inflation monitor")
+        st.caption("ABS-inspired visuals · CPI expenditure groups · Annual percentage change is not weighted contribution to headline CPI")
+        cpi, cpi_error = prepare_cpi_visuals(df, time_col, label_cols)
+        if cpi_error:
+            st.warning(cpi_error)
+            st.caption("The API's dimensions may differ across ABS releases. Inspect the Data Explorer to identify a consistent index-number series.")
+        else:
+            available = cpi.dropna(subset=["Annual %"])
+            if available.empty:
+                st.info("Not enough history to calculate annual inflation. Expand the start year.")
+            else:
+                last_period = available["_DATE"].max()
+                latest = available.loc[available["_DATE"] == last_period].copy()
+                groups = latest[latest["Group"].isin(CPI_GROUPS)].sort_values("Annual %")
+                headline = available[available["Group"].isin(["All groups CPI", "All groups"])].sort_values("_DATE")
+                if not headline.empty:
+                    recent = headline.iloc[-1]
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("Headline CPI · annual", f"{recent['Annual %']:.2f}%")
+                    k2.metric("Headline CPI · period", f"{recent['Period %']:.2f}%" if pd.notna(recent["Period %"]) else "N/A")
+                    k3.metric("Latest CPI period", recent["_DATE"].strftime("%b %Y"))
+                    fig = go.Figure()
+                    fig.add_hrect(y0=2, y1=3, fillcolor="#10b981", opacity=.12, line_width=0,
+                                  annotation_text="RBA target band", annotation_position="top left")
+                    fig.add_trace(go.Scatter(x=headline["_DATE"], y=headline["Annual %"],
+                                             mode="lines", name="Headline CPI", line=dict(color="#1677c8", width=3)))
+                    fig.update_layout(title="Headline inflation — annual change", yaxis_title="Annual change (%)",
+                                      xaxis_title="", template="plotly_white", height=390,
+                                      margin=dict(l=20,r=20,t=60,b=20), hovermode="x unified")
+                    st.plotly_chart(fig, use_container_width=True, key="headline_cpi")
+                else:
+                    st.info("Headline CPI series not present in this matched ABS slice.")
+                if not groups.empty:
+                    fig = px.bar(groups, x="Annual %", y="Group", orientation="h", text="Annual %",
+                                 color="Annual %", color_continuous_scale=["#bd5549", "#e9edf2", "#1677c8"],
+                                 color_continuous_midpoint=0, title="Annual inflation by expenditure group")
+                    fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
+                    fig.update_layout(template="plotly_white", height=520, coloraxis_showscale=False,
+                                      yaxis_title="", xaxis_title="Annual change (%)", margin=dict(l=20,r=65,t=55,b=20))
+                    fig.add_vline(x=0, line_color="gray", line_width=1)
+                    st.plotly_chart(fig, use_container_width=True, key="cpi_groups")
+                    st.caption(f"Expenditure-group observations: {last_period:%b %Y}. Rates are NOT contributions to overall CPI.")
+                else:
+                    st.info("No expenditure groups share the latest available period.")
+                st.markdown("#### Inflation momentum")
+                if not headline.empty:
+                    momentum = headline.tail(24)
+                    momentum_fig = go.Figure()
+                    momentum_fig.add_trace(go.Bar(x=momentum["_DATE"], y=momentum["Period %"], name="Period-on-period %"))
+                    momentum_fig.add_trace(go.Scatter(x=momentum["_DATE"], y=momentum["Annual %"],
+                                                      name="Annual %", mode="lines+markers", yaxis="y2"))
+                    momentum_fig.update_layout(template="plotly_white", height=360,
+                                               yaxis=dict(title="Period change (%)"),
+                                               yaxis2=dict(title="Annual change (%)", overlaying="y", side="right"),
+                                               legend=dict(orientation="h", y=1.15), margin=dict(l=20,r=20,t=55,b=20))
+                    st.plotly_chart(momentum_fig, use_container_width=True, key="cpi_momentum")
+                st.markdown("#### Inflation persistence heatmap")
+                heat = available[available["Group"].isin(CPI_GROUPS)].copy()
+                if not heat.empty:
+                    periods = sorted(heat["_DATE"].unique())[-24:]
+                    heat = heat[heat["_DATE"].isin(periods)]
+                    heat["Period"] = heat["_DATE"].dt.strftime("%b %y")
+                    matrix = heat.pivot(index="Group", columns="Period", values="Annual %")
+                    order = heat[["_DATE", "Period"]].drop_duplicates().sort_values("_DATE")["Period"]
+                    matrix = matrix.reindex(columns=order)
+                    hfig = px.imshow(matrix, aspect="auto", color_continuous_scale="RdBu_r",
+                                     color_continuous_midpoint=0, labels=dict(color="Annual %"))
+                    hfig.update_layout(template="plotly_white", height=440, margin=dict(l=20,r=20,t=20,b=20))
+                    st.plotly_chart(hfig, use_container_width=True, key="cpi_heatmap")
+                st.caption("Source: ABS Data API. CPI index levels converted to annual changes using matched calendar periods. Compare ABS published rates before making investment decisions.")
 
 
 # =========================================================
