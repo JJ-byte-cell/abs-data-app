@@ -263,11 +263,59 @@ except (ValueError, pd.errors.ParserError) as exc:
     st.stop()
 
 
+
 # =========================================================
 # 6. STANDARDISE THE DATA
 # =========================================================
 
-time_col = find_column(
+@st.cache_data(show_spinner=False)
+def standardise_abs_data(raw_df):
+    """Standardise ABS data and cache the result."""
+
+    time_col = find_column(raw_df, ["TIME_PERIOD", "TIME PERIOD"])
+    value_col = find_column(raw_df, ["OBS_VALUE", "OBS VALUE"])
+
+    if time_col is None or value_col is None:
+        raise ValueError(
+            "Could not identify the time and observation value columns."
+        )
+
+    df = raw_df.copy()
+
+    df["_DATE"] = df[time_col].map(parse_period)
+    df["_VALUE"] = pd.to_numeric(df[value_col], errors="coerce")
+
+    excluded = {
+        time_col,
+        value_col,
+        "_DATE",
+        "_VALUE",
+        "DATAFLOW",
+        "OBS_STATUS",
+        "OBS_COMMENT",
+        "UNIT_MEASURE",
+        "UNIT_MULT",
+    }
+
+    dimension_cols = [
+        col for col in df.columns
+        if col not in excluded and not col.startswith("Unnamed:")
+    ]
+
+    label_cols = []
+
+    for col in dimension_cols:
+        label_col = col + " [label]"
+        df[label_col] = clean_label(df[col])
+        label_cols.append(label_col)
+
+    df = df.dropna(subset=["_DATE"])
+
+    return df, time_col, value_col, dimension_cols, label_cols
+
+
+try:
+    (
         df,
         time_col,
         value_col,
@@ -283,55 +331,6 @@ except ValueError as exc:
         st.dataframe(raw_df, use_container_width=True)
 
     st.stop()
-
-    
-    raw_df, ["TIME_PERIOD", "TIME PERIOD"]
-value_col = find_column(raw_df, ["OBS_VALUE", "OBS VALUE"])
-
-if time_col is None or value_col is None:
-    st.error(
-        "Could not identify the time and observation value columns. "
-        "Inspect the raw data below."
-    )
-
-    with st.expander("Inspect raw API response", expanded=True):
-        st.code(request_url)
-        st.dataframe(raw_df, use_container_width=True)
-
-    st.stop()
-
-df = raw_df.copy()
-
-df["_DATE"] = df[time_col].map(parse_period)
-df["_VALUE"] = pd.to_numeric(df[value_col], errors="coerce")
-
-# Identify potential dimensions while excluding technical columns.
-excluded = {
-    time_col,
-    value_col,
-    "_DATE",
-    "_VALUE",
-    "DATAFLOW",
-    "OBS_STATUS",
-    "OBS_COMMENT",
-    "UNIT_MEASURE",
-    "UNIT_MULT",
-}
-
-dimension_cols = [
-    col for col in df.columns
-    if col not in excluded and not col.startswith("Unnamed:")
-]
-
-# Create readable display labels without deleting the original codes.
-label_cols = []
-
-for col in dimension_cols:
-    label_col = col + " [label]"
-    df[label_col] = clean_label(df[col])
-    label_cols.append(label_col)
-
-df = df.dropna(subset=["_DATE"])
 
 
 # =========================================================
