@@ -22,7 +22,7 @@ start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=20
 
 if selected_flow_id:
     # CLEAN URL STRUCTURE: Comma separators with an explicit data key filter path (/all) to avoid 404 responses
-    base_domain = "https://data.api.abs.gov.au"
+    base_domain = "https://abs.gov.au"
     endpoint_path = f"/rest/data/{selected_flow_id}/all"
     api_url = f"{base_domain}{endpoint_path}?startPeriod={start_year}"
     
@@ -91,9 +91,14 @@ if selected_flow_id:
                                 
                                 chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
                                 pivot_df = chart_filtered_df.pivot_table(index=time_col, columns=group_col, values=value_col, aggfunc='mean')
+                                
+                                # FIXED LINE HERE: Sorting the timeline chronologically to smooth out the patch graph!
+                                pivot_df = pivot_df.sort_index()
+                                
                                 st.line_chart(pivot_df, use_container_width=True)
                             else:
-                                st.line_chart(df_data.set_index(time_col)[value_col], use_container_width=True)
+                                df_sorted = df_data.sort_values(by=time_col)
+                                st.line_chart(df_sorted.set_index(time_col)[value_col], use_container_width=True)
                         else:
                             st.warning("Could not automatically align chart axes. View the raw grid expanded above.")
                 else:
