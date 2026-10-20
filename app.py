@@ -82,7 +82,7 @@ def _local(tag):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_cpi_structure():
-    url = f"{BASE_URL}/dataflow/ABS/CPI/+"
+    url = f"{BASE_URL}/dataflow/ABS/CPI"
     response = create_session().get(
         url, params={"references": "all"},
         headers={"Accept": "application/vnd.sdmx.structure+xml;version=2.1"},
@@ -385,28 +385,29 @@ st.sidebar.markdown(
 try:
     with st.spinner("Connecting to the ABS Data API..."):
         if cpi_fast:
-            raw_df, request_url, cpi_decisions = fetch_targeted_cpi(
-                int(start_year), int(end_year)
-            )
+            try:
+                raw_df, request_url, cpi_decisions = fetch_targeted_cpi(
+                    int(start_year), int(end_year)
+                )
+            except (requests.RequestException, ValueError, pd.errors.ParserError, ET.ParseError) as fast_error:
+                st.warning(
+                    "Fast CPI request could not be completed. "
+                    "Using the original ABS CPI data request instead. "
+                    f"Technical detail: {str(fast_error)[:350]}"
+                )
+                raw_df, request_url = fetch_abs_data(
+                    dataset["flow"], int(start_year), int(end_year)
+                )
+                cpi_decisions = ["Fallback: original full CPI request"]
         else:
             raw_df, request_url = fetch_abs_data(
                 dataset["flow"], int(start_year), int(end_year)
             )
 
-except requests.RequestException as exc:
-    st.error(f"ABS API connection failed: {exc}")
-    st.info(
-        "Check your internet connection and the dataflow ID. "
-        "The API may also be temporarily unavailable."
-    )
+except (requests.RequestException, ValueError, pd.errors.ParserError, ET.ParseError) as exc:
+    st.error(f"ABS API request failed: {exc}")
+    st.info("The ABS API may be unavailable or the dataset structure may have changed.")
     st.stop()
-
-except (ValueError, pd.errors.ParserError) as exc:
-    st.error(f"Unable to process the ABS response: {exc}")
-    if cpi_fast:
-        st.info("The ABS structure or CPI codes may have changed. Fast mode does not silently fall back to downloading the entire dataset. Turn off Fast CPI mode to use the original full-data explorer.")
-    st.stop()
-
 
 
 # =========================================================
