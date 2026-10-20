@@ -15,7 +15,9 @@ FALLBACK_OPTIONS = {
 
 st.sidebar.header("1. Choose a Dataset")
 selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_id = FALLBACK_OPTIONS[selected_flow_id] if 'selected_flow_id' in locals() else FALLBACK_OPTIONS[selected_flow_name]
+
+# FIXED: Safely extracting the direct dictionary value matching your selection
+selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
 
 st.sidebar.header("2. Data Filters")
 start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
@@ -64,7 +66,6 @@ if selected_flow_id:
                             elif "OBS_VALUE" in col_upper or "OBS VALUE" in col_upper or "VALUE" in col_upper:
                                 rename_dict[col] = "OBS_VALUE"
                             elif "MEASURE" in col_upper or "HEADING" in col_upper or "ITEM" in col_upper or "INDEX" in col_upper:
-                                # Prioritize categorical strings like "Data Item" or "Index" to split chart lines
                                 if "LABEL" in col_upper or "NAME" in col_upper or col_upper in ["DATA ITEM", "INDEX", "MEASURE"]:
                                     rename_dict[col] = "DATA_GROUP"
                         
@@ -77,7 +78,6 @@ if selected_flow_id:
                         # --- Data Visualisation ---
                         st.subheader("📈 Visualise Data Trends")
                         
-                        # Target our newly cleaned standardized columns
                         time_col = "TIME_PERIOD" if "TIME_PERIOD" in df_data.columns else None
                         value_col = "OBS_VALUE" if "OBS_VALUE" in df_data.columns else None
                         group_col = "DATA_GROUP" if "DATA_GROUP" in df_data.columns else None
