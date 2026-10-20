@@ -90,6 +90,15 @@ if selected_flow_id:
                                 )
                                 
                                 chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
+                                # Create the clean pivot table matrix
+pivot_df = chart_filtered_df.pivot_table(index=time_col, columns=group_col, values=value_col, aggfunc='mean')
+
+# CRITICAL PATCH: Sort chronologically by date to turn the "patch graph" into clean continuous trend lines!
+pivot_df = pivot_df.sort_index()
+
+# Send the sorted matrix into the chart engine
+st.line_chart(pivot_df, use_container_width=True)
+
                                 pivot_df = chart_filtered_df.pivot_table(index=time_col, columns=group_col, values=value_col, aggfunc='mean')
                                 st.line_chart(pivot_df, use_container_width=True)
                             else:
