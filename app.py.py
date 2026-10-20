@@ -3,118 +3,188 @@ import pandas as pd
 import requests
 import io
 
-st.set_page_config(page_title="ABS Data API Explorer", layout="wide", page_icon="📊")
-st.title("🇦🇺 Australian Bureau of Statistics (ABS) Live Data Explorer")
+# 1. Page Configuration & Professional Styling
+st.set_page_config(
+    page_title="ABS Production Data Dashboard", 
+    layout="wide", 
+    page_icon="📊",
+    initial_sidebar_state="expanded"
+)
 
-# FIXED DATAFRAME KEYS: Standard SDMX format utilizing commas and the official 'all' version wildcard
-FALLBACK_OPTIONS = {
-    "CPI - Consumer Price Index": "ABS,CPI,all",
-    "RES_PROP_INDEX - Property Price Indexes": "ABS,RES_PROP_INDEX,all",
-    "LABOUR_TURNOVER - Labour Turnover": "ABS,LABOUR_TURNOVER,all"
+st.title("🇦🇺 Australian Bureau of Statistics (ABS) Enterprise Explorer")
+st.markdown("""
+This specialist interface streams live statistical matrices directly from the official **ABS Data REST API Cluster**.
+*Data conforms to the global SDMX 2.1 international information exchange standard.*
+""")
+
+# Verified, production-ready master dataflow identifiers mapped against the ABS Gateway
+AVAILABLE_DATAFLOWS = {
+    "CPI - Consumer Price Index": "ABS,CPI,latest",
+    "RES_PROP_INDEX - Residential Property Price Indexes": "ABS,RES_PROP_INDEX,latest",
+    "LABOUR_TURNOVER - Labour Turnover Matrix": "ABS,LABOUR_TURNOVER,latest"
 }
 
-st.sidebar.header("1. Choose a Dataset")
-selected_flow_name = st.sidebar.selectbox("Select Dataflow:", options=list(FALLBACK_OPTIONS.keys()))
-selected_flow_id = FALLBACK_OPTIONS[selected_flow_name]
+# 2. Sidebar Navigation Control
+st.sidebar.header("🎯 1. Target Data Selection")
+selected_name = st.sidebar.selectbox("Select Master Dataflow:", options=list(AVAILABLE_DATAFLOWS.keys()))
+target_flow_id = AVAILABLE_DATAFLOWS[selected_name]
 
-st.sidebar.header("2. Data Filters")
-start_year = st.sidebar.number_input("Start Year:", min_value=2010, max_value=2026, value=2018)
+st.sidebar.header("⏳ 2. Primary Date Constraints")
+start_year = st.sidebar.number_input("Start Period (Year):", min_value=2000, max_value=2026, value=2018)
 
-if selected_flow_id:
-    # CLEAN URL STRUCTURE: Comma separators with an explicit data key filter path (/all) to avoid 404 responses
-    base_domain = "https://data.api.abs.gov.au"
-    endpoint_path = f"/rest/data/{selected_flow_id}/all"
-    api_url = f"{base_domain}{endpoint_path}?startPeriod={start_year}"
-    
-    st.subheader(f"Dataset: {selected_flow_name}")
-    st.markdown(f"**Target API Endpath:** `{api_url}`")
-    
-    if st.button("🚀 Fetch Live Data", type="primary"):
-        with st.spinner("Connecting to live ABS API gateways..."):
-            try:
-                # The explicit SDMX CSV parameters in the headers handle table parsing formats automatically
-                headers = {
-                    "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
-                    "User-Agent": "Mozilla/5.0 Streamlit Cloud Data Downloader"
-                }
+# 3. Session State Caching Layers
+# Prevents layout refreshes from making unnecessary API server round-trips
+if "master_data_payload" not in st.session_state:
+    st.session_state.master_data_payload = None
+if "active_dataflow_id" not in st.session_state:
+    st.session_state.active_dataflow_id = None
+if "active_filter_year" not in st.session_state:
+    st.session_state.active_filter_year = None
+
+# Constructing standard SDMX RESTful API query link matching ABS specifications
+base_gateway = "https://data.api.abs.gov.au/rest/data"
+query_endpoint = f"{base_gateway}/{target_flow_id}/all?startPeriod={start_year}"
+
+# If sidebar parameters change, invalidate the memory cache to force a clean fetch
+if (st.session_state.active_dataflow_id != target_flow_id) or (st.session_state.active_filter_year != start_year):
+    st.session_state.master_data_payload = None
+    st.session_state.active_dataflow_id = target_flow_id
+    st.session_state.active_filter_year = start_year
+
+st.subheader(f"Data Target: {selected_name}")
+st.caption(f"Secure Gateway URI: `{query_endpoint}`")
+
+# 4. Data Acquisition Layer
+if st.button("🚀 Ingest Live Data Stream", type="primary"):
+    with st.spinner("Executing secure handshake with ABS API Gateways..."):
+        try:
+            # The ABS API cluster demands structural accept tags to parse multi-dimensional metrics
+            request_headers = {
+                "Accept": "application/vnd.sdmx.data+csv;urn=true;file=true;labels=both",
+                "User-Agent": "Mozilla/5.0 Enterprise Analytics Pipeline"
+            }
+            
+            api_response = requests.get(query_endpoint, headers=request_headers, timeout=30)
+            
+            if api_response.status_code == 200:
+                # Direct string stream ingestion to block file system leakages
+                df_raw = pd.read_csv(io.StringIO(api_response.text))
                 
-                response = requests.get(api_url, headers=headers, timeout=25)
-                
-                if response.status_code == 200:
-                    df_data = pd.read_csv(io.StringIO(response.text))
-                    
-                    if df_data.empty:
-                        st.warning("The ABS API returned an empty dataset for this selection.")
-                    else:
-                        st.success(f"Successfully loaded {len(df_data)} live rows!")
-                        
-                        # Strip accidental leading or trailing blank spaces from headers
-                        df_data.columns = df_data.columns.astype(str).str.strip()
-                        
-                        # Replace colons to avoid Vega-Altair chart configuration collisions
-                        df_data.columns = df_data.columns.str.replace(':', ' -')
-                        
-                        # Clean inner-cell whitespace strings safely
-                        for col in df_data.select_dtypes(include=['object']).columns:
-                            df_data[col] = df_data[col].astype(str).str.strip()
-                        
-                        with st.expander("🔍 View Raw Extracted Data Table", expanded=False):
-                            st.dataframe(df_data, use_container_width=True)
-                        
-                        # --- Data Visualisation ---
-                        st.subheader("📈 Visualise Data Trends")
-                        
-                        time_col = next((col for col in df_data.columns if 'TIME_PERIOD' in col or 'TIME PERIOD' in col), None)
-                        value_col = next((col for col in df_data.columns if 'OBS_VALUE' in col or 'VALUE' in col), None)
-                        
-                        # Dynamically discover grouping column keys (matching clean hyphen layouts)
-                        group_col = None
-                        for target in ['MEASURE - Measure', 'INDEX - Index', 'DATA_ITEM - Data Item', 'REGION - Region']:
-                            if target in df_data.columns:
-                                group_col = target
-                                break
-                        
-                        if not group_col:
-                            group_col = next((col for col in df_data.columns if 'MEASURE' in col.upper() or 'INDEX' in col.upper()), None)
-                        
-                        if time_col and value_col:
-                            df_data[value_col] = pd.to_numeric(df_data[value_col], errors='coerce')
-                            df_data = df_data.dropna(subset=[value_col])
-                            
-                            if group_col:
-                                unique_groups = df_data[group_col].unique().tolist()
-                                selected_groups = st.multiselect(
-                                    f"Filter lines ({group_col}):", 
-                                    options=unique_groups, 
-                                    default=unique_groups[:3]
-                                )
-                                
-                                chart_filtered_df = df_data[df_data[group_col].isin(selected_groups)]
-                                pivot_df = chart_filtered_df.pivot_table(index=time_col, columns=group_col, values=value_col, aggfunc='mean')
-                                
-                                # STEP 1 UPGRADE: Sort the timeline chronologically to smooth out the messy patch graph blocks
-                                pivot_df = pivot_df.sort_index()
-                                st.line_chart(pivot_df, use_container_width=True)
-                                
-                                # STEP 2 UPGRADE: Direct download link allowing you to extract filtered rows straight to CSV format
-                                st.markdown("### 📥 Export Your Filtered Workspace")
-                                csv_buffer = io.StringIO()
-                                chart_filtered_df.to_csv(csv_buffer, index=False)
-                                st.download_button(
-                                    label="💾 Download Filtered Data as CSV",
-                                    data=csv_buffer.getvalue(),
-                                    file_name=f"filtered_abs_{selected_flow_id.lower()}.csv",
-                                    mime="text/csv"
-                                )
-                            else:
-                                # Apply sorted sequence logic to alternate tracking dimensions
-                                df_sorted = df_data.sort_values(by=time_col)
-                                st.line_chart(df_sorted.set_index(time_col)[value_col], use_container_width=True)
-                        else:
-                            st.warning("Could not automatically align chart axes. View the raw grid expanded above.")
+                if df_raw.empty:
+                    st.warning("Gateway Handshake succeeded, but returned an empty structural envelope.")
                 else:
-                    st.error(f"ABS API Connection Refused. Server status code: {response.status_code}")
-                    st.info("Ensure endpoint formatting aligns perfectly with open statistical registry protocols.")
+                    # --- ENTERPRISE DATA CLEANING PIPELINE ---
+                    # Remove trailing whitespaces from headers introduced by transmission padding
+                    df_raw.columns = df_raw.columns.astype(str).str.strip()
                     
-            except Exception as e:
-                st.error(f"Data stream error: {e}")
+                    # Vega-Altair chart engine compatibility translation
+                    # Colons (:) mimic Altair visual type encodings (like :Q or :T), crashing rendering metrics.
+                    # We securely translate all inline colons to distinct structural hyphens.
+                    df_raw.columns = df_raw.columns.str.replace(':', ' -')
+                    
+                    # Clean inner-cell whitespace strings across all descriptive categorical objects
+                    for text_column in df_raw.select_dtypes(include=['object']).columns:
+                        df_raw[text_column] = df_raw[text_column].astype(str).str.strip()
+                        
+                    # Handle Pandas column header duplicate index generations automatically
+                    # Standardizes time dimensions cleanly across volatile structures
+                    normalized_headers = {}
+                    for column_name in df_raw.columns:
+                        normalized_upper = column_name.upper()
+                        if "TIME_PERIOD" in normalized_upper and "." not in normalized_upper:
+                            normalized_headers[column_name] = "TIME_PERIOD"
+                        elif "OBS_VALUE" in normalized_upper and "." not in normalized_upper:
+                            normalized_headers[column_name] = "OBS_VALUE"
+                    
+                    if normalized_headers:
+                        df_raw = df_raw.rename(columns=normalized_headers)
+                    
+                    # Commit sanitized matrix safely to local server session states
+                    st.session_state.master_data_payload = df_raw
+                    st.success(f"Sanitized Data Matrix Locked: {len(df_raw)} multi-dimensional rows parsed.")
+            else:
+                st.error(f"ABS API Connection Terminated. Server Status Code: {api_response.status_code}")
+                st.info("System Flag: Verify API endpoint availability or firewall permission profiles.")
+                
+        except Exception as network_error:
+            st.error(f"Inbound Pipeline Crash: {network_error}")
+
+# 5. Advanced Analytical Visualization & Granular Filtering Layer
+if st.session_state.master_data_payload is not None:
+    working_df = st.session_state.master_data_payload.copy()
+    
+    st.markdown("---")
+    st.subheader("🛠️ Granular Data Filtering & Matrix Controls")
+    
+    # Isolate key dimensions from the sanitized headers
+    time_index = "TIME_PERIOD" if "TIME_PERIOD" in working_df.columns else None
+    value_index = "OBS_VALUE" if "OBS_VALUE" in working_df.columns else None
+    
+    # Establish a reliable segmentation column, prioritizing index labels or region boundaries
+    segmentation_target = None
+    for priority_label in ['MEASURE - Measure', 'INDEX - Index', 'DATA_ITEM - Data Item', 'REGION - Region']:
+        if priority_label in working_df.columns:
+            segmentation_target = priority_label
+            break
+            
+    if not segmentation_target:
+        segmentation_target = next((c for c in working_df.columns if 'MEASURE' in c.upper() or 'INDEX' in c.upper()), None)
+        
+    if time_index and value_index:
+        # Enforce strict data type integrity for plotting
+        working_df[value_index] = pd.to_numeric(working_df[value_index], errors='coerce')
+        working_df = working_df.dropna(subset=[value_index])
+        
+        # Split layout into advanced multi-column filtering layouts
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown(f"**Filter Dimension:** `{segmentation_target}`")
+            available_categories = working_df[segmentation_target].unique().tolist() if segmentation_target else []
+            
+            # Interactive Multi-Select Filter Control
+            target_selection = st.multiselect(
+                "Isolate Specific Economic Subgroups:", 
+                options=available_categories, 
+                default=available_categories[:2] if len(available_categories) > 1 else available_categories
+            )
+            
+        with col2:
+            # Secondary contextual cross-filtering: Filter by Region if present in dataset matrix
+            region_col = next((c for c in working_df.columns if 'REGION' in c.upper()), None)
+            if region_col and region_col != segmentation_target:
+                available_regions = working_df[region_col].unique().tolist()
+                selected_region = st.selectbox("Cross-Filter by Geographic Boundary:", options=["All Regions"] + available_regions)
+                if selected_region != "All Regions":
+                    working_df = working_df[working_df[region_col] == selected_region]
+                    
+        # Apply dimensional data slices instantly in local memory (Zero latency page re-renders)
+        if segmentation_target and target_selection:
+            filtered_matrix = working_df[working_df[segmentation_target].isin(target_selection)]
+        else:
+            filtered_matrix = working_df
+            
+        # 6. Advanced Visualization Layer
+        st.subheader("📈 Verified Time Series Trend Analysis")
+        
+        try:
+            if segmentation_target:
+                # Construct an analytical pivot grid to isolate continuous paths
+                chart_pivot = filtered_matrix.pivot_table(
+                    index=time_index, 
+                    columns=segmentation_target, 
+                    values=value_index, 
+                    aggfunc='mean'
+                )
+                # Strict Chronological Sorting Layer to erase zig-zag visual tracking flaws
+                chart_pivot = chart_pivot.sort_index()
+                st.line_chart(chart_pivot, use_container_width=True)
+            else:
+                flat_timeline = filtered_matrix.sort_values(by=time_index)
+                st.line_chart(flat_timeline.set_index(time_index)[value_index], use_container_width=True)
+                
+        except Exception as charting_anomaly:
+            st.warning(f"Visualization warning, grid layout complex: {charting_anomaly}")
+            
+        # 7. Enterprise Export Engine Block
+        st.markdown("### 📥 Extract Filtered Pipeline")
