@@ -100,6 +100,7 @@ DATASETS = {
     },
     "Unemployment & Labour Market": {"flow": "ABS,LF,all", "category": "Labour Market"},
     "Australian 10-Year Government Bond Yield": {"flow": None, "category": "Interest Rates"},
+    "Australian Money Markets (BBSW & Bank Bills)": {"flow": None, "category": "Interest Rates"},
     "Labour Turnover": {
         "flow": "ABS,LABOUR_TURNOVER,all",
         "category": "Labour Market",
@@ -490,6 +491,15 @@ if dataset_name == "Australian 10-Year Government Bond Yield":
         load_bond_yield.clear()
         st.rerun()
     show_bond_dashboard(int(start_year), int(end_year))
+    st.stop()
+
+# Dedicated RBA money-market dashboard (RBA F1 is not an ABS dataflow).
+if dataset_name == "Australian Money Markets (BBSW & Bank Bills)":
+    from money_market_dashboard import show_money_market_dashboard, load_money_market_data
+    if st.sidebar.button("Refresh RBA money-market data", key="refresh_rba_money_market"):
+        load_money_market_data.clear()
+        st.rerun()
+    show_money_market_dashboard(int(start_year), int(end_year))
     st.stop()
 
 # Dedicated labour-force dashboard: avoid loading the generic ABS dataflow twice.
