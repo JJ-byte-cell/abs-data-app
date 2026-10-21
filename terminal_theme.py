@@ -247,3 +247,149 @@ def apply_dark_ui():
 
     </style>
     """, unsafe_allow_html=True)
+  
+# ============================================
+# FINANCIAL TERMINAL - LIGHT CONTROL FIX
+# ============================================
+
+def fix_light_controls():
+    import streamlit as st
+
+    st.markdown("""
+    <style>
+    /* Colour palette
+       Main background: #090F1A
+       Control background: #162438
+       Popup background: #101D2E
+       Border: #34475F
+       Text: #F1F5F9
+    */
+
+    /* All select boxes and multiselects */
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"],
+    [data-testid="stMultiSelect"] [data-baseweb="select"] {
+        background-color: #162438 !important;
+        border-color: #34475F !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Text inside select boxes */
+    [data-testid="stSelectbox"] [data-baseweb="select"] *,
+    [data-testid="stMultiSelect"] [data-baseweb="select"] * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Number input outer container */
+    [data-testid="stNumberInput"] [data-baseweb="input"],
+    [data-testid="stNumberInput"] [data-baseweb="input"] > div {
+        background-color: #162438 !important;
+        border-color: #34475F !important;
+    }
+
+    /* Number input text */
+    [data-testid="stNumberInput"] input {
+        background-color: #162438 !important;
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Plus and minus buttons */
+    [data-testid="stNumberInput"] button,
+    [data-testid="stNumberInput"] [data-baseweb="button"] {
+        background-color: #1B3048 !important;
+        color: #F1F5F9 !important;
+        border-color: #34475F !important;
+    }
+
+    /* Icons inside number buttons */
+    [data-testid="stNumberInput"] button svg {
+        color: #F1F5F9 !important;
+        fill: none !important;
+        stroke: #F1F5F9 !important;
+    }
+
+    /* Radio button group containers */
+    [data-testid="stRadio"] [role="radiogroup"] {
+        background-color: #162438 !important;
+        border-radius: 6px !important;
+    }
+
+    /* Segmented control outer container */
+    [data-testid="stSegmentedControl"] [data-baseweb="button-group"],
+    [data-testid="stSegmentedControl"] > div {
+        background-color: #162438 !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Segmented control buttons */
+    [data-testid="stSegmentedControl"] button {
+        background-color: #162438 !important;
+        color: #F1F5F9 !important;
+        border: 1px solid #34475F !important;
+    }
+
+    /* Active segmented option */
+    [data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+        background-color: #075BC4 !important;
+        color: #FFFFFF !important;
+    }
+
+    /* Dropdown popups */
+    [data-baseweb="popover"],
+    [data-baseweb="menu"],
+    [role="listbox"] {
+        background-color: #101D2E !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Dropdown menu option text */
+    [role="option"],
+    [role="option"] *,
+    [data-baseweb="menu"] li,
+    [data-baseweb="menu"] li * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Selected dropdown option */
+    [role="option"][aria-selected="true"] {
+        background-color: #075BC4 !important;
+    }
+
+    /* Tabs */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        background-color: #101B2B !important;
+    }
+
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        background-color: #162438 !important;
+        color: #CBD5E1 !important;
+    }
+
+    [data-testid="stTabs"] [aria-selected="true"] {
+        background-color: #1B3048 !important;
+        color: #63C5FF !important;
+    }
+
+    /* General buttons */
+    [data-testid="stButton"] button,
+    [data-testid="stDownloadButton"] button {
+        background-color: #1B3048 !important;
+        color: #F1F5F9 !important;
+        border-color: #395B7E !important;
+    }
+
+    /* Prevent white hover backgrounds */
+    [data-testid="stButton"] button:hover,
+    [data-testid="stNumberInput"] button:hover,
+    [data-testid="stSegmentedControl"] button:hover {
+        background-color: #234564 !important;
+        color: #FFFFFF !important;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
