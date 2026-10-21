@@ -50,3 +50,75 @@ code {background:#1c2d43 !important; color:#f8c572 !important;}
 
 def install():
     st.markdown(CSS, unsafe_allow_html=True)
+
+# ============================================
+# FINANCIAL TERMINAL - DROPDOWN CONTRAST FIX
+# ============================================
+
+import streamlit as st
+
+def apply_dropdown_contrast():
+    st.markdown("""
+    <style>
+    /* Dropdown field */
+    div[data-baseweb="select"] > div {
+        background-color: #102035 !important;
+        color: #F8FAFC !important;
+        border: 1px solid #3B638A !important;
+        border-radius: 6px !important;
+    }
+
+    /* Selected text and placeholder */
+    div[data-baseweb="select"] * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Dropdown labels */
+    .stSelectbox label,
+    .stMultiSelect label {
+        color: #CBD5E1 !important;
+    }
+
+    /* Dropdown menu background */
+    ul[role="listbox"] {
+        background-color: #0D1B2A !important;
+        border: 1px solid #3B638A !important;
+    }
+
+    /* Individual dropdown options */
+    li[role="option"] {
+        background-color: #0D1B2A !important;
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Option text, including nested elements */
+    li[role="option"] * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Hovered option */
+    li[role="option"]:hover,
+    li[role="option"]:hover * {
+        background-color: #173A60 !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+
+    /* Selected option */
+    li[role="option"][aria-selected="true"],
+    li[role="option"][aria-selected="true"] * {
+        background-color: #075BC4 !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+
+    /* Focused dropdown */
+    div[data-baseweb="select"]:focus-within > div {
+        border-color: #2196F3 !important;
+        box-shadow: 0 0 0 1px #2196F3 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
