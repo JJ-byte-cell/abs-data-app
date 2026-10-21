@@ -57,68 +57,66 @@ def install():
 
 import streamlit as st
 
+
 def apply_dropdown_contrast():
+    import streamlit as st
+
     st.markdown("""
     <style>
-    /* Dropdown field */
+    /* Main dropdown field */
     div[data-baseweb="select"] > div {
-        background-color: #102035 !important;
-        color: #F8FAFC !important;
+        background: #102035 !important;
         border: 1px solid #3B638A !important;
-        border-radius: 6px !important;
     }
 
-    /* Selected text and placeholder */
-    div[data-baseweb="select"] * {
-        color: #F1F5F9 !important;
-        -webkit-text-fill-color: #F1F5F9 !important;
+    /* Selected value */
+    div[data-baseweb="select"] [data-testid="stMarkdownContainer"],
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] input {
+        color: #F8FAFC !important;
+        -webkit-text-fill-color: #F8FAFC !important;
     }
 
-    /* Dropdown labels */
-    .stSelectbox label,
-    .stMultiSelect label {
-        color: #CBD5E1 !important;
+    /* Dropdown popup container */
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] > div {
+        background-color: #0D1B2A !important;
+        color: #F8FAFC !important;
     }
 
-    /* Dropdown menu background */
+    /* Popup menu */
+    div[data-baseweb="menu"],
     ul[role="listbox"] {
         background-color: #0D1B2A !important;
-        border: 1px solid #3B638A !important;
+        color: #F8FAFC !important;
     }
 
-    /* Individual dropdown options */
+    /* Dropdown items */
+    div[data-baseweb="menu"] li,
+    ul[role="listbox"] li,
     li[role="option"] {
+        color: #F8FAFC !important;
+        -webkit-text-fill-color: #F8FAFC !important;
         background-color: #0D1B2A !important;
-        color: #F1F5F9 !important;
-        -webkit-text-fill-color: #F1F5F9 !important;
     }
 
-    /* Option text, including nested elements */
+    /* Nested option labels */
+    div[data-baseweb="menu"] li *,
+    ul[role="listbox"] li *,
     li[role="option"] * {
-        color: #F1F5F9 !important;
-        -webkit-text-fill-color: #F1F5F9 !important;
+        color: #F8FAFC !important;
+        -webkit-text-fill-color: #F8FAFC !important;
     }
 
-    /* Hovered option */
+    /* Hover and keyboard focus */
     li[role="option"]:hover,
-    li[role="option"]:hover * {
-        background-color: #173A60 !important;
-        color: #FFFFFF !important;
-        -webkit-text-fill-color: #FFFFFF !important;
-    }
-
-    /* Selected option */
-    li[role="option"][aria-selected="true"],
-    li[role="option"][aria-selected="true"] * {
+    li[role="option"][aria-selected="true"] {
         background-color: #075BC4 !important;
-        color: #FFFFFF !important;
-        -webkit-text-fill-color: #FFFFFF !important;
     }
 
-    /* Focused dropdown */
-    div[data-baseweb="select"]:focus-within > div {
-        border-color: #2196F3 !important;
-        box-shadow: 0 0 0 1px #2196F3 !important;
+    /* Filter labels */
+    div[data-testid="stWidgetLabel"] * {
+        color: #CBD5E1 !important;
     }
     </style>
     """, unsafe_allow_html=True)
