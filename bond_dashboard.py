@@ -4,6 +4,8 @@ import requests
 import streamlit as st
 
 @st.cache_data(ttl=86400)
+def load_bond_yield(*args, **kwargs):
+    return load_bond_data()
 def load_bond_data():
     url = "https://www.rba.gov.au/statistics/tables/csv/f2-data.csv"
 
