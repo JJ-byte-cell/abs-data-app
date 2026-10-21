@@ -1,4 +1,132 @@
-st.error(f"Unable to load RBA 10-year government bond yield: {exc}")
+"""Australian 10-year nominal Commonwealth Government bond yield dashboard.
+
+RBA Statistical Table F2. Public API for app.py:
+    load_bond_yield() -> (DataFrame, description)
+    show_bond_dashboard(start_year, end_year) -> None
+"""
+import csv
+import io
+from datetime import datetime
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
+import streamlit as st
+
+RBA_F2 = "https://www.rba.gov.au/statistics/tables/csv/f2-data.csv"
+RBA_TABLE = "https://www.rba.gov.au/statistics/tables/"
+SERIES_ID = "FCMYGBAG10D"
+
+# Colours consistent with the existing dark terminal theme.
+BACKGROUND = "#111d2e"
+GRID = "#29394e"
+TEXT = "#f1f5f9"
+BLUE = "#53b8ff"
+CYAN = "#38bdf8"
+GREEN = "#22c55e"
+RED = "#ef5350"
+
+
+def _date(value):
+    text = str(value).strip().strip('"')
+    for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d %b %Y", "%b-%Y", "%b %Y"):
+        try:
+            return pd.Timestamp(datetime.strptime(text, fmt))
+        except ValueError:
+            pass
+    return pd.NaT
+
+
+def _parse_rba_f2(content):
+    """Locate the 10-year yield by official series ID in RBA's metadata CSV."""
+    decoded = content.decode("utf-8-sig", errors="replace")
+    rows = list(csv.reader(io.StringIO(decoded)))
+    if not rows:
+        raise ValueError("The RBA CSV is empty.")
+
+    positions = [
+        (i, j)
+        for i, row in enumerate(rows[:40])
+        for j, cell in enumerate(row)
+        if cell.strip().upper() == SERIES_ID
+    ]
+    if not positions:
+        raise ValueError(f"RBA F2 did not contain series {SERIES_ID}.")
+    header_row, series_col = positions[0]
+
+    candidate_dates = []
+    for row in rows[header_row + 1:header_row + 60]:
+        for j, cell in enumerate(row[:4]):
+            if pd.notna(_date(cell)):
+                candidate_dates.append(j)
+    if not candidate_dates:
+        raise ValueError("Could not identify the date column in RBA F2.")
+    date_col = max(set(candidate_dates), key=candidate_dates.count)
+
+    observations = []
+    for row in rows[header_row + 1:]:
+        if len(row) <= max(series_col, date_col):
+            continue
+        date = _date(row[date_col])
+        if pd.isna(date):
+            continue
+        raw = row[series_col].strip().replace(",", "")
+        if not raw or raw.lower() in ("-", "..", "n.a.", "na"):
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        observations.append((date, value))
+
+    if not observations:
+        raise ValueError(f"Found RBA series {SERIES_ID}, but no numeric observations.")
+    df = pd.DataFrame(observations, columns=["Date", "Yield (%)"])
+    df = df.drop_duplicates("Date", keep="last").sort_values("Date").reset_index(drop=True)
+    return df, "Australian Government 10-year nominal bond yield (RBA F2; FCMYGBAG10D)"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_bond_yield():
+    """Fetch and cache official RBA F2 observations."""
+    response = requests.get(
+        RBA_F2,
+        timeout=(10, 60),
+        headers={"User-Agent": "Mozilla/5.0 (compatible; AustralianMacroTracker/1.0)"},
+    )
+    response.raise_for_status()
+    return _parse_rba_f2(response.content)
+
+
+def _style(fig):
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=BACKGROUND,
+        plot_bgcolor=BACKGROUND,
+        font_color=TEXT,
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#162438", font_color="#f8fafc"),
+        margin=dict(l=25, r=20, t=55, b=25),
+    )
+    fig.update_xaxes(gridcolor=GRID, zerolinecolor=GRID)
+    fig.update_yaxes(gridcolor=GRID, zerolinecolor="#8295aa")
+    return fig
+
+
+def show_bond_dashboard(start_year=None, end_year=None):
+    """Render the bond macro tracker, compatible with existing app.py calls."""
+    st.header("Australian 10-Year Government Bond Yield")
+    st.caption(
+        "Source: Reserve Bank of Australia, Statistical Table F2. "
+        "Nominal Commonwealth Government 10-year bond yield; daily observations, updated weekly."
+    )
+
+    try:
+        with st.spinner("Loading official RBA bond yield data…"):
+            all_data, description = load_bond_yield()
+    except (requests.RequestException, ValueError, UnicodeError, csv.Error) as exc:
+        st.error(f"Unable to load RBA 10-year government bond yield: {exc}")
         st.markdown(f"[View the RBA statistical tables]({RBA_TABLE})")
         return
 
