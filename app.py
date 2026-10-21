@@ -27,11 +27,13 @@ st.set_page_config(
     layout="wide",
 )
 
+
 from terminal_theme import install as install_terminal_theme
 from terminal_theme import apply_dropdown_contrast
 
-apply_dropdown_contrast()
 install_terminal_theme()
+apply_dropdown_contrast()
+
 st.title("🇦🇺 Australian Macroeconomic Tracker")
 st.caption("Interactive economic dashboard powered by ABS data")
 
