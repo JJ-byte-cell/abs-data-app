@@ -14,8 +14,6 @@ import streamlit as st
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from terminal_tooltips import install as install_terminal_tooltips
-install_terminal_tooltips()
 
 # =========================================================
 # 1. PAGE CONFIGURATION
@@ -27,17 +25,59 @@ st.set_page_config(
     layout="wide",
 )
 
+from terminal_tooltips import install as install_terminal_tooltips
+install_terminal_tooltips()
+
 
 from terminal_theme import install as install_terminal_theme
-from terminal_theme import apply_dropdown_contrast
-from terminal_theme import apply_dark_ui
-from terminal_theme import fix_light_controls
-
 install_terminal_theme()
-apply_dropdown_contrast()
-apply_dark_ui()
-fix_light_controls()
 
+# Default all Plotly Express charts to the financial-terminal palette.
+px.defaults.template = "plotly_dark"
+
+def terminal_table(data, *, max_html_rows=250, height=None):
+    """Dark, accessible HTML for small tables; native grid for large data."""
+    from html import escape
+    if len(data) > max_html_rows:
+        st.dataframe(data, hide_index=True, use_container_width=True, height=height)
+        return
+    shown = data.copy()
+    for col in shown.columns:
+        if pd.api.types.is_datetime64_any_dtype(shown[col]):
+            shown[col] = pd.to_datetime(shown[col], errors="coerce").dt.strftime("%d %b %Y")
+        elif pd.api.types.is_numeric_dtype(shown[col]):
+            shown[col] = shown[col].map(lambda v: f"{v:,.3f}" if pd.notna(v) else "—")
+    headers = "".join(f"<th scope='col'>{escape(str(c))}</th>" for c in shown.columns)
+    rows = []
+    for record in shown.itertuples(index=False, name=None):
+        cells = "".join(f"<td>{escape(str(v)) if pd.notna(v) else '—'}</td>" for v in record)
+        rows.append(f"<tr>{cells}</tr>")
+    markup = ("<div class='terminal-table-scroll'><table class='terminal-table'>"
+              f"<thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>")
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def apply_terminal_plotly(fig):
+    """Style Plotly charts consistently without altering plotted data."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#111d2e", plot_bgcolor="#111d2e",
+        font=dict(color="#e2e8f0"),
+        title_font=dict(color="#f1f5f9"),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        hoverlabel=dict(bgcolor="#162438", bordercolor="#3b638a", font_color="#f8fafc"),
+    )
+    fig.update_xaxes(gridcolor="#29394e", zerolinecolor="#34475f")
+    fig.update_yaxes(gridcolor="#29394e", zerolinecolor="#34475f")
+    return fig
+
+# Apply styling to every chart without changing individual chart calculations.
+_original_plotly_chart = st.plotly_chart
+
+def _terminal_plotly_chart(fig, *args, **kwargs):
+    return _original_plotly_chart(apply_terminal_plotly(fig), *args, **kwargs)
+
+st.plotly_chart = _terminal_plotly_chart
 
 st.title("🇦🇺 Australian Macroeconomic Tracker")
 st.caption("Interactive economic dashboard powered by ABS data")
@@ -724,11 +764,7 @@ if active_view == VIEWS[0]:
             }
         )
 
-        st.dataframe(
-            latest_display,
-            hide_index=True,
-            use_container_width=True,
-        )
+        terminal_table(latest_display)
 
 
 # =========================================================
@@ -852,7 +888,11 @@ def prepare_cpi_visuals(source, time_column, labels, preferred_frequency="Auto")
     previous = data[["Group", "_PERIOD", "_VALUE"]].rename(columns={"_PERIOD": "_PREV_PERIOD", "_VALUE": "_YEAR_AGO"})
     data = data.merge(previous, on=["Group", "_PREV_PERIOD"], how="left", validate="one_to_one")
     data["Annual %"] = (data["_VALUE"] / data["_YEAR_AGO"] - 1) * 100
-    data["Period %"] = data.groupby("Group")["_VALUE"].pct_change(fill_method=None) * 100
+    prev_period = data.groupby("Group")["_PERIOD"].shift(1)
+    prev_value = data.groupby("Group")["_VALUE"].shift(1)
+    data["Period %"] = ((data["_VALUE"] / prev_value) - 1).mul(100).where(
+        (prev_period == data["_PERIOD"] - 1) & (prev_value > 0)
+    )
     data.loc[data["_YEAR_AGO"] <= 0, "Annual %"] = float("nan")
     data.attrs["frequency"] = frequency
     return data, ""
@@ -910,7 +950,7 @@ if active_view == VIEWS[1]:
                     fig.add_trace(go.Scatter(x=headline["_DATE"], y=headline["Annual %"],
                                              mode="lines", name="Headline CPI", line=dict(color="#1677c8", width=3)))
                     fig.update_layout(title="Headline inflation — annual change", yaxis_title="Annual change (%)",
-                                      xaxis_title="", template="plotly_white", height=390,
+                                      xaxis_title="", template="plotly_dark", height=390,
                                       margin=dict(l=20,r=20,t=60,b=20), hovermode="x unified")
                     fig.update_xaxes(range=[headline["_DATE"].min(), headline["_DATE"].max() + pd.DateOffset(months=1)], autorange=False)
                     st.plotly_chart(fig, use_container_width=True, key="headline_cpi")
@@ -921,7 +961,7 @@ if active_view == VIEWS[1]:
                                  color="Annual %", color_continuous_scale=["#bd5549", "#e9edf2", "#1677c8"],
                                  color_continuous_midpoint=0, title="Annual inflation by expenditure group")
                     fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
-                    fig.update_layout(template="plotly_white", height=520, coloraxis_showscale=False,
+                    fig.update_layout(template="plotly_dark", height=520, coloraxis_showscale=False,
                                       yaxis_title="", xaxis_title="Annual change (%)", margin=dict(l=20,r=65,t=55,b=20))
                     fig.add_vline(x=0, line_color="gray", line_width=1)
                     st.plotly_chart(fig, use_container_width=True, key="cpi_groups")
@@ -935,7 +975,7 @@ if active_view == VIEWS[1]:
                     momentum_fig.add_trace(go.Bar(x=momentum["_DATE"], y=momentum["Period %"], name="Period-on-period %"))
                     momentum_fig.add_trace(go.Scatter(x=momentum["_DATE"], y=momentum["Annual %"],
                                                       name="Annual %", mode="lines+markers", yaxis="y2"))
-                    momentum_fig.update_layout(template="plotly_white", height=360,
+                    momentum_fig.update_layout(template="plotly_dark", height=360,
                                                yaxis=dict(title="Period change (%)"),
                                                yaxis2=dict(title="Annual change (%)", overlaying="y", side="right"),
                                                legend=dict(orientation="h", y=1.15), margin=dict(l=20,r=20,t=55,b=20))
@@ -951,7 +991,7 @@ if active_view == VIEWS[1]:
                     matrix = matrix.reindex(columns=order)
                     hfig = px.imshow(matrix, aspect="auto", color_continuous_scale="RdBu_r",
                                      color_continuous_midpoint=0, labels=dict(color="Annual %"))
-                    hfig.update_layout(template="plotly_white", height=440, margin=dict(l=20,r=20,t=20,b=20))
+                    hfig.update_layout(template="plotly_dark", height=440, margin=dict(l=20,r=20,t=20,b=20))
                     st.plotly_chart(hfig, use_container_width=True, key="cpi_heatmap")
                 st.markdown("#### Expenditure group trends")
                 history_groups = history[history["Group"].isin(CPI_GROUPS)].copy()
@@ -961,7 +1001,7 @@ if active_view == VIEWS[1]:
                     chosen_groups = st.multiselect("Compare expenditure groups", group_options, default=default_groups, key="cpi_group_trend_selection")
                     if chosen_groups:
                         trend_data = history_groups[history_groups["Group"].isin(chosen_groups)]
-                        group_fig = px.line(trend_data, x="_DATE", y="Annual %", color="Group", title="Annual inflation by expenditure group over time", labels={"_DATE":"", "Annual %":"Annual change (%)"}, template="plotly_white")
+                        group_fig = px.line(trend_data, x="_DATE", y="Annual %", color="Group", title="Annual inflation by expenditure group over time", labels={"_DATE":"", "Annual %":"Annual change (%)"}, template="plotly_dark")
                         group_fig.update_layout(height=420, hovermode="x unified", margin=dict(l=20,r=20,t=55,b=20))
                         group_fig.add_hline(y=0, line_dash="dot", line_color="gray")
                         st.plotly_chart(group_fig, use_container_width=True, key="cpi_group_history")
@@ -985,11 +1025,11 @@ if active_view == VIEWS[1]:
                         fig = px.line(breadth, x="_DATE", y=["Above 3% share", "Above 2% share"],
                                       title="Share of CPI expenditure groups above inflation thresholds",
                                       labels={"_DATE": "", "value": "Share of groups (%)", "variable": "Threshold"},
-                                      template="plotly_white")
+                                      template="plotly_dark")
                         fig.update_yaxes(range=[0, 100]); fig.update_layout(hovermode="x unified")
                         st.plotly_chart(fig, use_container_width=True, key="breadth_plot")
                         st.caption("Equal-weighted group breadth, not expenditure-weighted inflation. A group is counted only when its annual rate is available.")
-                        st.dataframe(breadth.tail(12), hide_index=True, use_container_width=True)
+                        terminal_table(breadth.tail(12))
                     else:
                         st.info("No expenditure-group inflation rates are available for breadth analysis.")
                 with research_tabs[1]:
@@ -997,7 +1037,7 @@ if active_view == VIEWS[1]:
                     housing = history[history["Group"].str.contains("Housing|Rent|dwelling", case=False, na=False)]
                     if not housing.empty:
                         st.plotly_chart(px.line(housing, x="_DATE", y="Annual %", color="Group",
-                                                title="Housing CPI annual inflation", template="plotly_white"),
+                                                title="Housing CPI annual inflation", template="plotly_dark"),
                                         use_container_width=True, key="housing_plot")
                     st.caption("The targeted top-level CPI query may only contain Housing, not rents and new-dwelling subgroups. Upload a dated ABS subgroup export to inspect components.")
                     housing_upload = st.file_uploader("Optional ABS housing subgroup CSV (Date, Component, Annual %)", type="csv", key="housing_upload")
@@ -1011,7 +1051,7 @@ if active_view == VIEWS[1]:
                                 h["Annual %"] = pd.to_numeric(h["Annual %"], errors="coerce")
                                 h = h.dropna(subset=["Date", "Annual %", "Component"])
                                 st.plotly_chart(px.line(h, x="Date", y="Annual %", color="Component",
-                                                        title="Housing CPI subgroups — uploaded ABS data", template="plotly_white"),
+                                                        title="Housing CPI subgroups — uploaded ABS data", template="plotly_dark"),
                                                 use_container_width=True, key="housing_subgroups")
                         except Exception as exc:
                             st.warning(f"Could not read housing CSV: {exc}")
@@ -1034,7 +1074,7 @@ if active_view == VIEWS[1]:
                                     st.warning("No matching CPI dates. Use dates aligned to the CPI observation periods and frequency.")
                                 else:
                                     st.plotly_chart(px.line(compare, x="Date", y=["Headline annual %", "Trimmed mean annual %"],
-                                                            title="Headline vs trimmed-mean CPI (matched periods)", template="plotly_white"),
+                                                            title="Headline vs trimmed-mean CPI (matched periods)", template="plotly_dark"),
                                                     use_container_width=True, key="trimmed_chart")
                         except Exception as exc:
                             st.warning(f"Could not read trimmed-mean CSV: {exc}")
@@ -1057,7 +1097,7 @@ if active_view == VIEWS[1]:
                                 if not co.empty:
                                     fig = px.bar(co, x="Date", y="Contribution pp", color="Group",
                                                  title="CPI contributions (percentage points) — supplied series",
-                                                 template="plotly_white")
+                                                 template="plotly_dark")
                                     fig.update_layout(barmode="relative", hovermode="x unified")
                                     st.plotly_chart(fig, use_container_width=True, key="contribution_chart")
                                     st.caption("Validate that contribution methodology and group coverage match the ABS headline CPI definition.")
@@ -1085,12 +1125,12 @@ if active_view == VIEWS[1]:
                                     st.warning("No exact matching dates. Align the supplied dates with CPI release observation periods.")
                                 else:
                                     st.plotly_chart(px.line(aligned, x="Date", y=["CPI annual %"] + cols,
-                                                            title="CPI vs wages growth and cash rate — matched dates", template="plotly_white"),
+                                                            title="CPI vs wages growth and cash rate — matched dates", template="plotly_dark"),
                                                     use_container_width=True, key="macro_comparison")
                                     if "Wages annual %" in cols:
                                         aligned["Wages less CPI (pp)"] = aligned["Wages annual %"] - aligned["CPI annual %"]
                                         st.plotly_chart(px.bar(aligned, x="Date", y="Wages less CPI (pp)",
-                                                               title="Nominal wage growth less CPI inflation (percentage points)", template="plotly_white"),
+                                                               title="Nominal wage growth less CPI inflation (percentage points)", template="plotly_dark"),
                                                         use_container_width=True, key="real_wages_proxy")
                                         st.caption("Wage growth minus CPI is a purchasing-power indicator, not an exact real-wage growth calculation.")
                         except Exception as exc:
@@ -1144,19 +1184,26 @@ if active_view == VIEWS[2]:
 
     if transform == "Period-on-period % change":
 
-        plot_df["_PLOT_VALUE"] = (
-            plot_df.groupby("_SERIES")["_VALUE"]
-            .pct_change(fill_method=None) * 100
-        )
+        previous = plot_df.groupby("_SERIES", observed=True)["_VALUE"].shift(1)
+        plot_df["_PLOT_VALUE"] = ((plot_df["_VALUE"] / previous) - 1).mul(100).where(previous != 0)
 
     elif transform == "Year-on-year % change":
 
         lag = lag_map[frequency]
 
-        plot_df["_PLOT_VALUE"] = (
-            plot_df.groupby("_SERIES")["_VALUE"]
-            .pct_change(periods=lag, fill_method=None) * 100
-        )
+        # Compare exact calendar periods, never the Nth prior row if data has gaps.
+        period_freq = {"Monthly": "M", "Quarterly": "Q", "Annual": "Y"}.get(frequency)
+        if period_freq:
+            plot_df["_CAL_PERIOD"] = plot_df["_DATE"].dt.to_period(period_freq)
+            lookback = plot_df[["_SERIES", "_CAL_PERIOD", "_VALUE"]].copy()
+            lookback["_CAL_PERIOD"] = lookback["_CAL_PERIOD"] + lag
+            lookback = lookback.drop_duplicates(["_SERIES", "_CAL_PERIOD"])
+            lookback = lookback.rename(columns={"_VALUE": "_YEAR_AGO"})
+            plot_df = plot_df.merge(lookback, on=["_SERIES", "_CAL_PERIOD"], how="left")
+            plot_df["_PLOT_VALUE"] = ((plot_df["_VALUE"] / plot_df["_YEAR_AGO"]) - 1).mul(100).where(plot_df["_YEAR_AGO"] > 0)
+        else:
+            plot_df["_PLOT_VALUE"] = float("nan")
+            st.info("Exact year-on-year comparisons are supported for monthly, quarterly and annual series.")
 
     elif transform == "Indexed to 100 at start":
 
@@ -1250,7 +1297,7 @@ if active_view == VIEWS[2]:
                 "_SERIES": "Economic series",
             },
             title=f"{dataset_name}: {transform}",
-            template="plotly_white",
+            template="plotly_dark",
         )
 
         fig.update_layout(
@@ -1273,7 +1320,7 @@ if active_view == VIEWS[2]:
 
         st.caption(
             f"Detected frequency: {frequency}. "
-            "Year-on-year calculations use a frequency-based lag. "
+            "Year-on-year calculations use matched calendar periods. "
             "Verify the series frequency before interpreting results."
         )
 
@@ -1295,11 +1342,7 @@ if active_view == VIEWS[2]:
             "Standard deviation",
         ]
 
-        st.dataframe(
-            stats,
-            hide_index=True,
-            use_container_width=True,
-        )
+        terminal_table(stats)
 
 
 # =========================================================
@@ -1428,7 +1471,7 @@ if active_view == VIEWS[4]:
     )
 
     with st.expander("Detailed quality checks"):
-        st.dataframe(pd.DataFrame([{"Check": key, "Result": value} for key, value in report.items()]), hide_index=True, use_container_width=True)
+        terminal_table(pd.DataFrame([{"Check": key, "Result": value} for key, value in report.items()]))
 
     # Basic anomaly screening within each individual series.
     ordered = filtered_df.sort_values(["_SERIES", "_DATE"]).copy()
