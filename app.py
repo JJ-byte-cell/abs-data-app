@@ -384,6 +384,34 @@ def infer_frequency(periods):
     return "Daily / other"
 
 
+
+# Prefer official headline series without assuming ABS dimension codes.
+def headline_filter_default(dataset_name, column, options):
+    label = column.lower()
+    choices = [str(x) for x in options]
+    def pick(*patterns):
+        for pattern in patterns:
+            matches = [x for x in choices if pattern in x.lower()]
+            if len(matches) == 1:
+                return choices.index(matches[0])
+        return 0
+    if 'region' in label or 'geograph' in label:
+        return pick('australia', 'eight capital cities')
+    if 'sex' in label:
+        return pick('persons', 'both sexes')
+    if 'adjust' in label or 'tsest' in label:
+        return pick('seasonally adjusted')
+    if dataset_name == 'Consumer Price Index (CPI)':
+        if 'index' in label or 'measure' in label:
+            return pick('all groups cpi', 'all groups')
+    if dataset_name == 'Residential Property Price Indexes':
+        if 'index' in label or 'measure' in label:
+            return pick('residential property price index', 'weighted average')
+    if dataset_name == 'Labour Turnover':
+        if 'measure' in label or 'turnover' in label:
+            return pick('total labour turnover', 'labour turnover')
+    return 0
+
 # =========================================================
 # 4. SIDEBAR
 # =========================================================
@@ -623,6 +651,7 @@ if filterable_cols:
             selected = st.selectbox(
                 col.replace(" [label]", ""),
                 ["All"] + options,
+                index=headline_filter_default(dataset_name, col, ["All"] + options),
                 key=f"filter_{col}",
             )
 
