@@ -223,8 +223,12 @@ def show_bond_dashboard(start_year=None, end_year=None):
         "inversely to yields. This yield is not the RBA cash rate."
     )
 
-    st.subheader("Official observations")
-    st.dataframe(df.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
+with st.expander("View official RBA observations", expanded=False):
+    st.dataframe(
+        df.sort_values("Date", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+    )
     st.download_button(
         "Download RBA 10-year bond yield CSV",
         data=df.to_csv(index=False).encode("utf-8"),
