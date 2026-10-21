@@ -99,6 +99,7 @@ DATASETS = {
         "category": "Housing",
     },
     "Unemployment & Labour Market": {"flow": "ABS,LF,all", "category": "Labour Market"},
+    "Australian 10-Year Government Bond Yield": {"flow": None, "category": "Interest Rates"},
     "Labour Turnover": {
         "flow": "ABS,LABOUR_TURNOVER,all",
         "category": "Labour Market",
@@ -481,6 +482,15 @@ st.sidebar.markdown(
     "data-api-user-guide)"
 )
 
+
+# Dedicated RBA government-bond dashboard (RBA F2 is not an ABS dataflow).
+if dataset_name == "Australian 10-Year Government Bond Yield":
+    from bond_dashboard import show_bond_dashboard, load_bond_yield
+    if st.sidebar.button("Refresh RBA bond data", key="refresh_rba_bond"):
+        load_bond_yield.clear()
+        st.rerun()
+    show_bond_dashboard(int(start_year), int(end_year))
+    st.stop()
 
 # Dedicated labour-force dashboard: avoid loading the generic ABS dataflow twice.
 if dataset_name == "Unemployment & Labour Market":
