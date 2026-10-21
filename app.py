@@ -31,10 +31,12 @@ st.set_page_config(
 from terminal_theme import install as install_terminal_theme
 from terminal_theme import apply_dropdown_contrast
 from terminal_theme import apply_dark_ui
+from terminal_theme import fix_light_controls
 
 install_terminal_theme()
 apply_dropdown_contrast()
 apply_dark_ui()
+fix_light_controls()
 
 
 st.title("🇦🇺 Australian Macroeconomic Tracker")
