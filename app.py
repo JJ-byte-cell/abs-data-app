@@ -998,6 +998,9 @@ if active_view == VIEWS[1]:
                 groups = latest[latest["Group"].isin(CPI_GROUPS)].sort_values("Annual %")
                 headline = history[history["Group"].isin(["All groups CPI", "All groups"])].sort_values("_DATE")
                 if not headline.empty:
+                    from cpi_forecasting import show_cpi_forecasting
+                    with st.expander("CPI forecast · headline inflation", expanded=False):
+                        show_cpi_forecasting(cpi)
                     recent = headline.iloc[-1]
                     k1, k2, k3 = st.columns(3)
                     k1.metric("Headline CPI · annual", f"{recent['Annual %']:.2f}%")
