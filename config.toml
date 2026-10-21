@@ -5,4 +5,4 @@ backgroundColor = "#090F1A"
 secondaryBackgroundColor = "#142235"
 textColor = "#F1F5F9"
 borderColor = "#34475F"
-
+showWidgetBorder = true
