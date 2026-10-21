@@ -29,8 +29,12 @@ from terminal_tooltips import install as install_terminal_tooltips
 install_terminal_tooltips()
 
 
+
 from terminal_theme import install as install_terminal_theme
+from terminal_theme import fix_white_selectboxes
+
 install_terminal_theme()
+fix_white_selectboxes()
 
 # Default all Plotly Express charts to the financial-terminal palette.
 px.defaults.template = "plotly_dark"
