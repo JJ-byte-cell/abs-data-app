@@ -29,12 +29,8 @@ from terminal_tooltips import install as install_terminal_tooltips
 install_terminal_tooltips()
 
 
-
 from terminal_theme import install as install_terminal_theme
-from terminal_theme import fix_white_selectboxes
-
 install_terminal_theme()
-fix_white_selectboxes()
 
 # Default all Plotly Express charts to the financial-terminal palette.
 px.defaults.template = "plotly_dark"
@@ -102,6 +98,7 @@ DATASETS = {
         "flow": "ABS,RES_PROP_INDEX,all",
         "category": "Housing",
     },
+    "Unemployment & Labour Market": {"flow": "ABS,LF,all", "category": "Labour Market"},
     "Labour Turnover": {
         "flow": "ABS,LABOUR_TURNOVER,all",
         "category": "Labour Market",
@@ -456,6 +453,15 @@ st.sidebar.markdown(
     "data-api-user-guide)"
 )
 
+
+# Dedicated labour-force dashboard: avoid loading the generic ABS dataflow twice.
+if dataset_name == "Unemployment & Labour Market":
+    from unemployment_dashboard import show_unemployment_dashboard, load_labour_force
+    if st.sidebar.button("Refresh labour force cache", key="refresh_lf"):
+        load_labour_force.clear()
+        st.rerun()
+    show_unemployment_dashboard(int(start_year), int(end_year))
+    st.stop()
 
 # =========================================================
 # 5. FETCH DATA
