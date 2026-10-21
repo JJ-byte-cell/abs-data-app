@@ -65,6 +65,50 @@ h1,h2,h3,h4,h5,h6{color:#f1f5f9!important;letter-spacing:-.02em;}
 .terminal-table tbody tr:hover td{background:#234564;}
 a{color:#66bfff!important;} code{background:#1c2d43!important;color:#f8c572!important;}
 hr{border-color:#29394e!important;}
+
+/* Final selectbox treatment: Streamlit/BaseWeb uses different nested elements
+   across versions. Target all paintable descendants inside select controls,
+   not just the first child (which did not match the white layer). */
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stSelectbox"] [data-baseweb="select"] div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] div,
+[data-testid="stSelectbox"] [role="combobox"],
+[data-testid="stMultiSelect"] [role="combobox"],
+[data-testid="stSelectbox"] [aria-haspopup="listbox"],
+[data-testid="stMultiSelect"] [aria-haspopup="listbox"] {
+    background: #162438 !important;
+    background-color: #162438 !important;
+    color: #f1f5f9 !important;
+    border-color: #34475f !important;
+}
+/* Keep text/icons bright, including non-span BaseWeb labels. */
+[data-testid="stSelectbox"] [data-baseweb="select"] *,
+[data-testid="stMultiSelect"] [data-baseweb="select"] * {
+    color: #f1f5f9 !important;
+    -webkit-text-fill-color: #f1f5f9 !important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] svg,
+[data-testid="stMultiSelect"] [data-baseweb="select"] svg {
+    fill: currentColor !important;
+}
+/* Portaled options remain dark and legible. */
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] div {
+    background-color: #101d2e !important;
+    color: #f1f5f9 !important;
+}
+[data-baseweb="popover"] [role="option"]:hover,
+[data-baseweb="popover"] [role="option"][aria-selected="true"] {
+    background-color: #234564 !important;
+}
+/* Radio options and small explanatory labels were also too dim. */
+[data-testid="stRadio"] label,
+[data-testid="stRadio"] label p,
+[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
+    color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
+}
 </style>
 """
 
@@ -81,63 +125,7 @@ def apply_dark_ui():
 def fix_light_controls():
     pass
 
-# ==============================================
-# FINAL FIX — WHITE STREAMLIT SELECTBOXES
-# ==============================================
 
 def fix_white_selectboxes():
-    st.markdown("""
-    <style>
-    /* Target the actual BaseWeb selectbox field */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
-    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
-        background: #162438 !important;
-        background-color: #162438 !important;
-        border: 1px solid #34475F !important;
-        color: #F1F5F9 !important;
-    }
-
-    /* Nested field layers sometimes retain a white background */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
-    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div {
-        background-color: transparent !important;
-    }
-
-    /* Selected text */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] span,
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] input,
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] [aria-selected],
-    div[data-testid="stMultiSelect"] div[data-baseweb="select"] span {
-        color: #F1F5F9 !important;
-        -webkit-text-fill-color: #F1F5F9 !important;
-    }
-
-    /* Dropdown arrows */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] svg {
-        color: #CBD5E1 !important;
-        fill: currentColor !important;
-    }
-
-    /* Dropdown popup */
-    div[data-baseweb="popover"],
-    div[data-baseweb="menu"],
-    ul[role="listbox"] {
-        background-color: #101D2E !important;
-    }
-
-    /* Dropdown options */
-    [role="option"],
-    [role="option"] * {
-        color: #F1F5F9 !important;
-        -webkit-text-fill-color: #F1F5F9 !important;
-    }
-
-    [role="option"]:hover {
-        background-color: #234564 !important;
-    }
-
-    [role="option"][aria-selected="true"] {
-        background-color: #075BC4 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    """Compatibility with earlier app.py edits; rules are included in install()."""
+    pass
