@@ -133,3 +133,117 @@ def install():
 def apply_dropdown_contrast():
     """Backward-compatible helper for existing app.py imports."""
     st.markdown(DROPDOWN_CSS, unsafe_allow_html=True)
+
+# ============================================
+# FINANCIAL TERMINAL - DARK UI CONSISTENCY
+# ============================================
+
+def apply_dark_ui():
+    st.markdown("""
+    <style>
+
+    /* General dashboard backgrounds */
+    .stApp,
+    [data-testid="stAppViewContainer"] {
+        background-color: #090F1A !important;
+        color: #E2E8F0 !important;
+    }
+
+    /* Input fields */
+    [data-baseweb="input"],
+    [data-baseweb="input"] > div,
+    [data-baseweb="textarea"],
+    [data-baseweb="textarea"] > div,
+    [data-baseweb="select"] > div {
+        background-color: #162438 !important;
+        border-color: #34475F !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Input text */
+    [data-baseweb="input"] input,
+    [data-baseweb="textarea"] textarea {
+        background-color: transparent !important;
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Dropdown popup and options */
+    [data-baseweb="popover"],
+    [data-baseweb="popover"] [data-baseweb="menu"],
+    [role="listbox"],
+    [role="listbox"] [role="option"] {
+        background-color: #101D2E !important;
+        color: #F1F5F9 !important;
+    }
+
+    [role="listbox"] [role="option"] *,
+    [data-baseweb="menu"] [role="option"] * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    [role="option"]:hover,
+    [role="option"][aria-selected="true"] {
+        background-color: #075BC4 !important;
+    }
+
+    /* Buttons */
+    .stButton button,
+    .stDownloadButton button,
+    .stFormSubmitButton button {
+        background-color: #1B3048 !important;
+        border: 1px solid #395B7E !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* File upload areas */
+    [data-testid="stFileUploader"] section,
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: #142235 !important;
+        border-color: #3A516B !important;
+    }
+
+    /* Expanders and bordered containers */
+    [data-testid="stExpander"],
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #111D2E !important;
+        border-color: #2B4059 !important;
+    }
+
+    /* Tables */
+    [data-testid="stTable"] table,
+    [data-testid="stTable"] th,
+    [data-testid="stTable"] td {
+        background-color: #111D2E !important;
+        color: #E2E8F0 !important;
+        border-color: #2B4059 !important;
+    }
+
+    /* Dataframe containers */
+    [data-testid="stDataFrame"] {
+        background-color: #111D2E !important;
+        border-color: #2B4059 !important;
+    }
+
+    /* Tabs */
+    [data-baseweb="tab-list"] {
+        background-color: #101B2B !important;
+    }
+
+    /* Popovers, tooltips and menus */
+    [data-baseweb="tooltip"],
+    [data-baseweb="popover"] > div {
+        background-color: #142235 !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Alerts */
+    [data-testid="stAlert"] {
+        background-color: #15263A !important;
+        border-color: #375572 !important;
+        color: #E2E8F0 !important;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
