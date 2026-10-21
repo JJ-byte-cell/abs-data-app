@@ -30,6 +30,36 @@ def find_col(df, names):
 def series_name(row, cols):
     return ' · '.join(str(row[c]).split(':',1)[-1].strip() for c in cols)
 
+
+def labour_default(col, options):
+    name = col.lower()
+    preferred = []
+    if 'measure' in name:
+        preferred = ['m13: unemployment rate', 'unemployment rate']
+    elif 'sex' in name:
+        preferred = ['persons', 'both sexes']
+    elif 'tsest' in name or 'adjust' in name:
+        preferred = ['seasonally adjusted']
+    elif 'region' in name:
+        preferred = ['australia']
+    for needle in preferred:
+        matches = [i for i, v in enumerate(options) if needle in str(v).lower()]
+        if len(matches) == 1:
+            return matches[0]
+    return 0
+
+def headline_series_index(options):
+    # If dimensions have several residual combinations, prefer a uniquely
+    # identifiable national persons seasonally-adjusted unemployment series.
+    ranked = []
+    for i, option in enumerate(options):
+        name = str(option).lower()
+        score = sum((5 if token == 'unemployment rate' else 3)
+                    for token in ['unemployment rate', 'persons', 'seasonally adjusted', 'australia']
+                    if token in name)
+        ranked.append((score, i))
+    return max(ranked)[1] if ranked and max(ranked)[0] > 0 else 0
+
 def show_unemployment_dashboard(start_year, end_year):
     st.header('Unemployment & Labour Market')
     st.caption('Source: Australian Bureau of Statistics — Labour Force, Australia (LF). Official series only; seasonal adjustment and population scope are shown explicitly.')
@@ -64,7 +94,7 @@ def show_unemployment_dashboard(start_year, end_year):
             values = sorted(selected[col].dropna().astype(str).unique().tolist())
             if len(values) < 2 or len(values) > 150:
                 continue
-            choice = filter_cols[i % 2].selectbox(col, ['All'] + values, key=f'lf_{i}_{col}')
+            choice = filter_cols[i % 2].selectbox(col, ['All'] + values, index=labour_default(col, ['All'] + values), key=f'lf_{i}_{col}')
             if choice != 'All':
                 selected = selected[selected[col].astype(str) == choice]
     if selected.empty:
@@ -80,7 +110,7 @@ def show_unemployment_dashboard(start_year, end_year):
     options = selected['_series'].value_counts().index.tolist()
     st.caption(f'{len(selected):,} observations across {len(options):,} distinct series; {selected["_date"].min():%b %Y}–{selected["_date"].max():%b %Y}')
     if len(options) > 1:
-        chosen = st.selectbox('Series to chart', options, key='lf_chart_series')
+        chosen = st.selectbox('Series to chart', options, index=headline_series_index(options), key='lf_chart_series')
         selected = selected[selected['_series'] == chosen].copy()
     selected = selected.sort_values('_date').drop_duplicates('_date', keep='last')
     latest = selected.iloc[-1]
