@@ -1,0 +1,1 @@
+Australian Macro Research: replace app.py, macro_research.py, requirements.txt together. Research sections use official ABS/RBA requests on demand. Live API behaviour not verified in this build. Some charts require selecting compatible series; unavailable data are explicitly labelled.
