@@ -6,17 +6,26 @@ RBA Statistical Table F2. Public API for app.py:
 """
 import csv
 import io
-import re
 from datetime import datetime
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
 RBA_F2 = "https://www.rba.gov.au/statistics/tables/csv/f2-data.csv"
 RBA_TABLE = "https://www.rba.gov.au/statistics/tables/"
 SERIES_ID = "FCMYGBAG10D"
+
+# Colours consistent with the existing dark terminal theme.
+BACKGROUND = "#111d2e"
+GRID = "#29394e"
+TEXT = "#f1f5f9"
+BLUE = "#53b8ff"
+CYAN = "#38bdf8"
+GREEN = "#22c55e"
+RED = "#ef5350"
 
 
 def _date(value):
@@ -30,27 +39,22 @@ def _date(value):
 
 
 def _parse_rba_f2(content):
-    """Parse variable-width RBA CSV, locating the bond yield by its official series ID."""
+    """Locate the 10-year yield by official series ID in RBA's metadata CSV."""
     decoded = content.decode("utf-8-sig", errors="replace")
     rows = list(csv.reader(io.StringIO(decoded)))
     if not rows:
         raise ValueError("The RBA CSV is empty.")
 
-    # The RBA provides metadata/header lines above observations; those lines can
-    # have different column counts. csv.reader handles this reliably.
-    id_positions = [
-        (i, j) for i, row in enumerate(rows[:40])
+    positions = [
+        (i, j)
+        for i, row in enumerate(rows[:40])
         for j, cell in enumerate(row)
         if cell.strip().upper() == SERIES_ID
     ]
-    if not id_positions:
-        raise ValueError(
-            f"RBA F2 did not contain series {SERIES_ID}. "
-            "The RBA may have changed its CSV format or series identifiers."
-        )
-    header_row, series_col = id_positions[0]
+    if not positions:
+        raise ValueError(f"RBA F2 did not contain series {SERIES_ID}.")
+    header_row, series_col = positions[0]
 
-    # Find the date column from actual observations, not a fixed column index.
     candidate_dates = []
     for row in rows[header_row + 1:header_row + 60]:
         for j, cell in enumerate(row[:4]):
@@ -68,7 +72,7 @@ def _parse_rba_f2(content):
         if pd.isna(date):
             continue
         raw = row[series_col].strip().replace(",", "")
-        if not raw or raw in ("-", "..", "n.a.", "na"):
+        if not raw or raw.lower() in ("-", "..", "n.a.", "na"):
             continue
         try:
             value = float(raw)
@@ -77,11 +81,7 @@ def _parse_rba_f2(content):
         observations.append((date, value))
 
     if not observations:
-        raise ValueError(
-            f"Found RBA series {SERIES_ID}, but no numeric observations. "
-            "Please check whether the RBA has changed the F2 file layout."
-        )
-
+        raise ValueError(f"Found RBA series {SERIES_ID}, but no numeric observations.")
     df = pd.DataFrame(observations, columns=["Date", "Yield (%)"])
     df = df.drop_duplicates("Date", keep="last").sort_values("Date").reset_index(drop=True)
     return df, "Australian Government 10-year nominal bond yield (RBA F2; FCMYGBAG10D)"
@@ -89,7 +89,7 @@ def _parse_rba_f2(content):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_bond_yield():
-    """Fetch and cache the official RBA F2 observations."""
+    """Fetch and cache official RBA F2 observations."""
     response = requests.get(
         RBA_F2,
         timeout=(10, 60),
@@ -102,15 +102,15 @@ def load_bond_yield():
 def _style(fig):
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#111d2e",
-        plot_bgcolor="#111d2e",
-        font_color="#f1f5f9",
+        paper_bgcolor=BACKGROUND,
+        plot_bgcolor=BACKGROUND,
+        font_color=TEXT,
         hovermode="x unified",
         hoverlabel=dict(bgcolor="#162438", font_color="#f8fafc"),
         margin=dict(l=25, r=20, t=55, b=25),
     )
-    fig.update_xaxes(gridcolor="#29394e")
-    fig.update_yaxes(gridcolor="#29394e")
+    fig.update_xaxes(gridcolor=GRID, zerolinecolor=GRID)
+    fig.update_yaxes(gridcolor=GRID, zerolinecolor="#8295aa")
     return fig
 
 
@@ -162,18 +162,57 @@ def show_bond_dashboard(start_year=None, end_year=None):
 
     st.subheader("Historical yield trend")
     trend = px.line(chart_data, x="Date", y="Yield (%)", title="Australian Government 10-year nominal yield")
-    trend.update_traces(line_color="#53b8ff", hovertemplate="%{x|%d %b %Y}: %{y:.2f}%<extra></extra>")
+    trend.update_traces(
+        line=dict(color=BLUE, width=2.5),
+        hovertemplate="%{x|%d %b %Y}: %{y:.2f}%<extra></extra>",
+    )
     st.plotly_chart(_style(trend), use_container_width=True)
 
     st.subheader("Yield momentum")
     changes = chart_data.copy()
     changes["Change (bp)"] = changes["Yield (%)"].diff() * 100
-    bars = px.bar(changes.dropna(subset=["Change (bp)"]), x="Date", y="Change (bp)",
-                  title="Change between displayed observations (basis points)")
+    changes = changes.dropna(subset=["Change (bp)"])
+    bars = go.Figure()
+    bars.add_trace(go.Bar(
+        x=changes["Date"],
+        y=changes["Change (bp)"],
+        marker=dict(
+            color=[GREEN if v >= 0 else RED for v in changes["Change (bp)"]],
+            line=dict(width=0),
+        ),
+        hovertemplate="%{x|%d %b %Y}<br>Change: %{y:+.1f} bp<extra></extra>",
+        name="Yield change",
+    ))
+    bars.update_layout(
+        title="Change between displayed observations (basis points)",
+        xaxis_title="Date",
+        yaxis_title="Change (bp)",
+        showlegend=False,
+        bargap=0.08,
+    )
+    bars.update_yaxes(zeroline=True, zerolinewidth=1.5, zerolinecolor="#8295aa")
     st.plotly_chart(_style(bars), use_container_width=True)
 
     st.subheader("Yield distribution")
-    hist = px.histogram(df, x="Yield (%)", nbins=35, title="Distribution of yields in the selected period")
+    hist = px.histogram(
+        df,
+        x="Yield (%)",
+        nbins=35,
+        title="Distribution of yields in the selected period",
+        color_discrete_sequence=[CYAN],
+    )
+    hist.update_traces(
+        marker_line_color=BACKGROUND,
+        marker_line_width=0.5,
+        opacity=0.92,
+        hovertemplate="Yield bin: %{x:.2f}%<br>Observations: %{y}<extra></extra>",
+    )
+    hist.update_layout(
+        xaxis_title="Yield (%)",
+        yaxis_title="Observations",
+        bargap=0.035,
+        showlegend=False,
+    )
     st.plotly_chart(_style(hist), use_container_width=True)
 
     st.subheader("Macroeconomic interpretation")
