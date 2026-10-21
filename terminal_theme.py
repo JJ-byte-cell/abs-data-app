@@ -80,3 +80,64 @@ def apply_dark_ui():
 
 def fix_light_controls():
     pass
+
+# ==============================================
+# FINAL FIX — WHITE STREAMLIT SELECTBOXES
+# ==============================================
+
+def fix_white_selectboxes():
+    st.markdown("""
+    <style>
+    /* Target the actual BaseWeb selectbox field */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+        background: #162438 !important;
+        background-color: #162438 !important;
+        border: 1px solid #34475F !important;
+        color: #F1F5F9 !important;
+    }
+
+    /* Nested field layers sometimes retain a white background */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div {
+        background-color: transparent !important;
+    }
+
+    /* Selected text */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] span,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] input,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] [aria-selected],
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] span {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    /* Dropdown arrows */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] svg {
+        color: #CBD5E1 !important;
+        fill: currentColor !important;
+    }
+
+    /* Dropdown popup */
+    div[data-baseweb="popover"],
+    div[data-baseweb="menu"],
+    ul[role="listbox"] {
+        background-color: #101D2E !important;
+    }
+
+    /* Dropdown options */
+    [role="option"],
+    [role="option"] * {
+        color: #F1F5F9 !important;
+        -webkit-text-fill-color: #F1F5F9 !important;
+    }
+
+    [role="option"]:hover {
+        background-color: #234564 !important;
+    }
+
+    [role="option"][aria-selected="true"] {
+        background-color: #075BC4 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
