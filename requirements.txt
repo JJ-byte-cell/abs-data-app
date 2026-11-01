@@ -5,3 +5,5 @@ requests>=2.31
 numpy>=1.26
 beautifulsoup4>=4.12
 statsmodels>=0.14
+scikit-learn>=1.5
+xgboost>=2.1
