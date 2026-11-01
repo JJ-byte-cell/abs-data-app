@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 from statsmodels.tsa.arima.model import ARIMA
 
-RBA_F1 = 'https://www.rba.gov.au/statistics/tables/csv/f01d.csv'
+RBA_F1 = 'https://www.rba.gov.au/statistics/tables/csv/f1-data.csv'
 SERIES_ID = 'FIRMMCRTD'  # Official daily cash rate TARGET, not actual overnight cash rate
 
 
