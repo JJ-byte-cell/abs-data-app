@@ -101,6 +101,7 @@ DATASETS = {
     "Unemployment & Labour Market": {"flow": "ABS,LF,all", "category": "Labour Market"},
     "Australian 10-Year Government Bond Yield": {"flow": None, "category": "Interest Rates"},
     "Australian Money Markets (BBSW & Bank Bills)": {"flow": None, "category": "Interest Rates"},
+    "RBA Cash Rate Target & Forecast": {"flow": None, "category": "Interest Rates"},
     "Labour Turnover": {
         "flow": "ABS,LABOUR_TURNOVER,all",
         "category": "Labour Market",
@@ -483,6 +484,16 @@ st.sidebar.markdown(
     "data-api-user-guide)"
 )
 
+
+# Dedicated RBA cash-rate dashboard (RBA F1 is not an ABS dataflow).
+if dataset_name == "RBA Cash Rate Target & Forecast":
+    from cash_rate_dashboard import show_cash_rate_dashboard, load_cash_rate_data, forecast_cash_rate
+    if st.sidebar.button("Refresh RBA cash-rate data", key="refresh_rba_cash"):
+        load_cash_rate_data.clear()
+        forecast_cash_rate.clear()
+        st.rerun()
+    show_cash_rate_dashboard(int(start_year), int(end_year))
+    st.stop()
 
 # Dedicated RBA government-bond dashboard (RBA F2 is not an ABS dataflow).
 if dataset_name == "Australian 10-Year Government Bond Yield":
