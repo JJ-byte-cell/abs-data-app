@@ -158,3 +158,6 @@ def show_cash_rate_dashboard(start_year, end_year):
     except (ValueError, np.linalg.LinAlgError) as exc:
         st.warning(f"Forecast unavailable: {exc}")
     st.caption("Source: Reserve Bank of Australia, Cash Rate Target decisions. Latest published decision and last successful download are distinct timestamps.")
+
+    from cash_rate_suite import show_suite
+    show_suite(data)
